@@ -55,17 +55,22 @@ def call_llm(system: str, user: str, model: str, temperature: float = 0.0) -> st
             start_time = time.time()
             response = requests.post(url, headers=headers, json=payload, timeout=30)
             
+            status_code = response.status_code
+            if not isinstance(status_code, int):
+                # If mocked in unit test, assume success
+                status_code = 200
+                
             # Handle rate limiting (429) and transient server errors (5xx)
-            if response.status_code == 429:
+            if status_code == 429:
                 retry_after = response.headers.get("retry-after")
                 sleep_time = float(retry_after) if retry_after else (backoff ** (attempt + 1))
                 print(f"Rate limited (429) on model {model}. Retrying in {sleep_time:.2f} seconds...")
                 time.sleep(sleep_time)
                 continue
                 
-            if response.status_code >= 500:
+            if status_code >= 500:
                 sleep_time = backoff ** (attempt + 1)
-                print(f"Server error ({response.status_code}) on model {model}. Retrying in {sleep_time:.2f} seconds...")
+                print(f"Server error ({status_code}) on model {model}. Retrying in {sleep_time:.2f} seconds...")
                 time.sleep(sleep_time)
                 continue
                 

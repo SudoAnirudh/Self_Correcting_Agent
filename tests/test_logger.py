@@ -34,7 +34,7 @@ def test_agent_logger_creates_file_and_logs_events():
     logger.log_step(record)
     
     # Log recovery
-    logger.log_recovery(1, "s1", "tool_failure", "fallback_source", "retry 1")
+    logger.log_recovery("s1", "fallback_source", "retry 1")
     
     # Log run_end
     logger.log_run_end("Final answer", [], 1, 1)
@@ -61,7 +61,8 @@ def test_agent_logger_creates_file_and_logs_events():
     
     assert lines[4]["type"] == "recovery"
     assert lines[4]["subtask"] == "s1"
-    assert lines[4]["verdict"] == "tool_failure"
+    assert lines[4]["strategy"] == "fallback_source"
+    assert lines[4]["detail"] == "retry 1"
     
     assert lines[5]["type"] == "run_end"
     assert lines[5]["final_output"] == "Final answer"
