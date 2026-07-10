@@ -182,3 +182,25 @@ def synthesize(goal: str, facts: dict, summary_log: List[str], unresolved_subtas
         f"Unresolved Subtasks: {json.dumps(unresolved_subtasks)}"
     )
     return call_llm(system, user, REASONING_MODEL, temperature=0.3)
+
+# 5. Fact Extractor
+def extract_facts(goal: str, subtask_desc: str, action_result: Any) -> dict:
+    system = (
+        "You are a fact extraction assistant. Extract any key factual claims from the tool result "
+        "that are relevant to the user's goal and active subtask. Output JSON ONLY in the format:\n"
+        "{\n"
+        '  "claim_topic": "exact claim text",\n'
+        '  "another_topic": "another claim text"\n'
+        "}"
+    )
+    user = (
+        f"Original Goal: {goal}\n"
+        f"Active Subtask: {subtask_desc}\n"
+        f"Tool Result: {json.dumps(action_result)[:2000]}"
+    )
+    res = call_llm(system, user, EVALUATION_MODEL, temperature=0.0)
+    try:
+        return json.loads(res)
+    except json.JSONDecodeError:
+        return {}
+
