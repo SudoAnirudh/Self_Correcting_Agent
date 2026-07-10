@@ -29,6 +29,8 @@ def get_api_key() -> str:
 
 def call_llm(system: str, user: str, model: str, temperature: float = 0.0) -> str:
     """Wrapper that calls the Groq Chat Completions API with exponential backoff on transient errors."""
+    import time
+    time.sleep(1.0)
     api_key = get_api_key()
     url = "https://api.groq.com/openai/v1/chat/completions"
     
