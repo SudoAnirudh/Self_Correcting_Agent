@@ -28,7 +28,7 @@ def get_api_key() -> str:
     return key
 
 def call_llm(system: str, user: str, model: str, temperature: float = 0.0) -> str:
-    """Wrapper that calls the Groq Chat Completions API and logs raw prompt + response."""
+    """Wrapper that calls the Groq Chat Completions API with exponential backoff on transient errors."""
     api_key = get_api_key()
     url = "https://api.groq.com/openai/v1/chat/completions"
     
@@ -47,33 +47,57 @@ def call_llm(system: str, user: str, model: str, temperature: float = 0.0) -> st
         "response_format": {"type": "json_object"} if "json" in system.lower() or "json" in user.lower() else None
     }
     
-    # Track duration
-    start_time = time.time()
-    try:
-        response = requests.post(url, headers=headers, json=payload, timeout=30)
-        response.raise_for_status()
-        resp_json = response.json()
-        content = resp_json["choices"][0]["message"]["content"]
-    except Exception as e:
-        content = f"Error during LLM API call: {str(e)}"
-        raise e
-    finally:
-        duration = time.time() - start_time
-        # Log to logs/llm_calls.log
-        os.makedirs("logs", exist_ok=True)
-        log_entry = {
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-            "model": model,
-            "temperature": temperature,
-            "system_prompt": system,
-            "user_prompt": user,
-            "response": content,
-            "duration_seconds": duration
-        }
-        with open("logs/llm_calls.log", "a", encoding="utf-8") as f:
-            f.write(json.dumps(log_entry) + "\n")
+    max_retries = 5
+    backoff = 2
+    
+    for attempt in range(max_retries):
+        try:
+            start_time = time.time()
+            response = requests.post(url, headers=headers, json=payload, timeout=30)
             
-    return content
+            # Handle rate limiting (429) and transient server errors (5xx)
+            if response.status_code == 429:
+                retry_after = response.headers.get("retry-after")
+                sleep_time = float(retry_after) if retry_after else (backoff ** (attempt + 1))
+                print(f"Rate limited (429) on model {model}. Retrying in {sleep_time:.2f} seconds...")
+                time.sleep(sleep_time)
+                continue
+                
+            if response.status_code >= 500:
+                sleep_time = backoff ** (attempt + 1)
+                print(f"Server error ({response.status_code}) on model {model}. Retrying in {sleep_time:.2f} seconds...")
+                time.sleep(sleep_time)
+                continue
+                
+            response.raise_for_status()
+            resp_json = response.json()
+            content = resp_json["choices"][0]["message"]["content"]
+            
+            # Log successful call details
+            duration = time.time() - start_time
+            os.makedirs("logs", exist_ok=True)
+            log_entry = {
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "model": model,
+                "temperature": temperature,
+                "system_prompt": system,
+                "user_prompt": user,
+                "response": content,
+                "duration_seconds": duration
+            }
+            with open("logs/llm_calls.log", "a", encoding="utf-8") as f:
+                f.write(json.dumps(log_entry) + "\n")
+                
+            return content
+            
+        except requests.exceptions.RequestException as e:
+            if attempt == max_retries - 1:
+                raise e
+            sleep_time = backoff ** (attempt + 1)
+            print(f"Request exception: {str(e)}. Retrying in {sleep_time:.2f} seconds...")
+            time.sleep(sleep_time)
+            
+    raise RuntimeError("Failed to get response from Groq API after max retries.")
 
 # 1. Planner Decompose
 def decompose(goal: str) -> dict:
@@ -203,4 +227,32 @@ def extract_facts(goal: str, subtask_desc: str, action_result: Any) -> dict:
         return json.loads(res)
     except json.JSONDecodeError:
         return {}
+
+# 6. Inconsistency Resolver
+def resolve_inconsistency(goal: str, facts: dict, new_result: Any) -> dict:
+    system = (
+        "You are an expert research validator. We have detected a potential inconsistency between "
+        "our prior confirmed facts and the latest tool result. Analyze the contradiction.\n\n"
+        "Output JSON ONLY in the format:\n"
+        "{\n"
+        '  "resolution": "Explanation of the contradiction and which source is more authoritative.",\n'
+        '  "status": "resolved" | "needs_verification",\n'
+        '  "verification_query": "If status is needs_verification, provide a search query to verify the truth. Otherwise empty."\n'
+        "}"
+    )
+    user = (
+        f"Goal: {goal}\n"
+        f"Prior Confirmed Facts: {json.dumps(facts)}\n"
+        f"Latest Tool Result: {json.dumps(new_result)[:2000]}"
+    )
+    res = call_llm(system, user, REASONING_MODEL, temperature=0.0)
+    try:
+        return json.loads(res)
+    except json.JSONDecodeError:
+        return {
+            "resolution": "Failed to parse validator output.",
+            "status": "needs_verification",
+            "verification_query": "verify " + goal
+        }
+
 
