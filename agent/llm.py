@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from typing import Dict, Any, List, Optional
 
 # Constants
-REASONING_MODEL = "llama-3.3-70b-versatile"
+REASONING_MODEL = "llama-3.1-8b-instant"
 EVALUATION_MODEL = "llama-3.1-8b-instant"
 
 # Load environment variables from .env if present
