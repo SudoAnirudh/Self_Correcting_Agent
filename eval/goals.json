@@ -1,0 +1,52 @@
+[
+  {
+    "id": "goal_1",
+    "description": "official height of the eiffel tower",
+    "expected": "330 meters"
+  },
+  {
+    "id": "goal_2",
+    "description": "official population of Tokyo in 2023",
+    "expected": "37 million"
+  },
+  {
+    "id": "goal_3",
+    "description": "height of Mount Everest official measurement",
+    "expected": "8848.86 meters"
+  },
+  {
+    "id": "goal_4",
+    "description": "founding date of Apple Inc",
+    "expected": "April 1, 1976"
+  },
+  {
+    "id": "goal_5",
+    "description": "who was the first person to walk on the moon and when",
+    "expected": "Neil Armstrong on July 20, 1969"
+  },
+  {
+    "id": "goal_6",
+    "description": "current CEO of Twitter X",
+    "expected": "Linda Yaccarino"
+  },
+  {
+    "id": "goal_7",
+    "description": "number of elements in the periodic table",
+    "expected": "118 elements"
+  },
+  {
+    "id": "goal_8",
+    "description": "speed of light in a vacuum",
+    "expected": "299,792,458 meters per second"
+  },
+  {
+    "id": "goal_9",
+    "description": "distance from Earth to the Moon",
+    "expected": "384,400 km"
+  },
+  {
+    "id": "goal_10",
+    "description": "capital of Australia and its founding year",
+    "expected": "Canberra, founded in 1913"
+  }
+]
