@@ -76,6 +76,8 @@ def call_llm(system: str, user: str, model: str, temperature: float = 0.0) -> st
                 time.sleep(sleep_time)
                 continue
                 
+            if not response.ok:
+                print(f"Groq API Error details: {response.text}")
             response.raise_for_status()
             resp_json = response.json()
             content = resp_json["choices"][0]["message"]["content"]
