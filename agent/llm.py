@@ -144,12 +144,28 @@ def reason(memory_snapshot: dict, current_subtask: dict) -> dict:
         '  "action_input": {"query": "..."} | {"url": "..."}\n'
         "}"
     )
+    # Truncate history results in prompt to avoid payload limit violations
+    trimmed_history = []
+    for r in memory_snapshot.get('history', []):
+        res_str = json.dumps(r.get('action_result', ''))
+        if len(res_str) > 1000:
+            res_str = res_str[:1000] + "... [TRUNCATED]"
+        trimmed_history.append({
+            "step_num": r.get('step_num'),
+            "reasoning": r.get('reasoning'),
+            "action": r.get('action'),
+            "action_input": r.get('action_input'),
+            "action_result": res_str,
+            "eval_verdict": r.get('eval_verdict'),
+            "eval_reasoning": r.get('eval_reasoning')
+        })
+
     user = (
         f"Goal: {memory_snapshot['goal']}\n"
         f"Active Subtask: {json.dumps(current_subtask)}\n"
         f"Prior facts: {json.dumps(memory_snapshot['facts'])}\n"
         f"Summary Log: {json.dumps(memory_snapshot['summary_log'])}\n"
-        f"Recent History: {json.dumps(memory_snapshot['history'])}\n"
+        f"Recent History: {json.dumps(trimmed_history)}\n"
     )
     res = call_llm(system, user, REASONING_MODEL, temperature=0.0)
     try:
@@ -180,11 +196,15 @@ def evaluate(goal: str, subtask_desc: str, record_data: dict, facts_summary: dic
         "4. Otherwise, verdict is 'success'."
     )
     
+    res_str = json.dumps(record_data.get('action_result', ''))
+    if len(res_str) > 2000:
+        res_str = res_str[:2000] + "... [TRUNCATED]"
+
     user = (
         f"Original Goal: {goal}\n"
         f"Subtask Description: {subtask_desc}\n"
         f"Action: {record_data['action']}({json.dumps(record_data['action_input'])})\n"
-        f"Action Result: {json.dumps(record_data['action_result'])}\n"
+        f"Action Result: {res_str}\n"
         f"Prior Confirmed Facts: {json.dumps(facts_summary)}"
     )
     
