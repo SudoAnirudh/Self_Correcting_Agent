@@ -16,9 +16,9 @@ def test_tool_router_validation_failures():
     assert "url" in res["detail"]
     
     # 3. Unknown tool
-    with pytest.raises(ValueError) as excinfo:
-        router.call("nonexistent_tool", {"url": "https://example.com"})
-    assert "Unknown tool name" in str(excinfo.value)
+    res = router.call("nonexistent_tool", {"url": "https://example.com"})
+    assert res["error"] == "invalid_input"
+    assert "Unknown tool name" in res["detail"]
 
 def test_tool_router_exception_handling():
     router = ToolRouter(seed=42, force_mocks=False)
