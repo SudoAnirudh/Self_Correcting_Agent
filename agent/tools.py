@@ -66,7 +66,7 @@ class ToolRouter:
 
         try:
             return self._validate_output(name, raw_result)
-        except ValidationError as e:
+        except (ValidationError, ValueError) as e:
             return {"error": "schema_mismatch", "raw": raw_result, "detail": str(e)}
 
     def _validate_input(self, name: str, raw_input: dict) -> Any:
