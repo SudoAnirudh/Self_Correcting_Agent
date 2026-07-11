@@ -53,7 +53,7 @@ class ToolRouter:
         """Entrypoint for all tool calls. Validates input, dispatches, validates output."""
         try:
             validated_input = self._validate_input(name, raw_input)
-        except ValidationError as e:
+        except (ValidationError, ValueError) as e:
             return {"error": "invalid_input", "detail": str(e)}
 
         try:
