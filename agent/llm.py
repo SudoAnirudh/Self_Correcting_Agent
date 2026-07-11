@@ -46,6 +46,7 @@ def call_llm(system: str, user: str, model: str, temperature: float = 0.0) -> st
             {"role": "user", "content": user}
         ],
         "temperature": temperature,
+        "max_tokens": 2048,
         "response_format": {"type": "json_object"} if "json" in system.lower() or "json" in user.lower() else None
     }
     
@@ -108,6 +109,14 @@ def call_llm(system: str, user: str, model: str, temperature: float = 0.0) -> st
             
     raise RuntimeError("Failed to get response from Groq API after max retries.")
 
+def safe_call_llm(system: str, user: str, model: str, temperature: float = 0.0, fallback: str = "") -> str:
+    """Safely calls call_llm catching all exceptions to prevent orchestrator crash."""
+    try:
+        return call_llm(system, user, model, temperature)
+    except Exception as e:
+        print(f"Error calling LLM ({model}): {e}")
+        return fallback
+
 # 1. Planner Decompose
 def decompose(goal: str) -> dict:
     system = (
@@ -122,7 +131,7 @@ def decompose(goal: str) -> dict:
         "}"
     )
     user = f"Goal: {goal}"
-    res = call_llm(system, user, REASONING_MODEL, temperature=0.0)
+    res = safe_call_llm(system, user, REASONING_MODEL, temperature=0.0, fallback='{"subtasks": []}')
     try:
         return json.loads(res)
     except json.JSONDecodeError:
@@ -171,7 +180,7 @@ def reason(memory_snapshot: dict, current_subtask: dict) -> dict:
         f"Summary Log: {json.dumps(memory_snapshot['summary_log'])}\n"
         f"Recent History: {json.dumps(trimmed_history)}\n"
     )
-    res = call_llm(system, user, REASONING_MODEL, temperature=0.0)
+    res = safe_call_llm(system, user, REASONING_MODEL, temperature=0.0, fallback='{}')
     try:
         return json.loads(res)
     except json.JSONDecodeError:
@@ -212,7 +221,11 @@ def evaluate(goal: str, subtask_desc: str, record_data: dict, facts_summary: dic
         f"Prior Confirmed Facts: {json.dumps(facts_summary)}"
     )
     
-    res = call_llm(system, user, EVALUATION_MODEL, temperature=0.0)
+    fallback_json = json.dumps({
+        "verdict": "tool_failure",
+        "reasoning": "Failed to get response from evaluator model due to API error."
+    })
+    res = safe_call_llm(system, user, EVALUATION_MODEL, temperature=0.0, fallback=fallback_json)
     try:
         return json.loads(res)
     except json.JSONDecodeError:
@@ -234,7 +247,7 @@ def synthesize(goal: str, facts: dict, summary_log: List[str], unresolved_subtas
         f"Summary Log: {json.dumps(summary_log)}\n"
         f"Unresolved Subtasks: {json.dumps(unresolved_subtasks)}"
     )
-    return call_llm(system, user, REASONING_MODEL, temperature=0.3)
+    return safe_call_llm(system, user, REASONING_MODEL, temperature=0.3, fallback="Failed to synthesize final answer.")
 
 # 5. Fact Extractor
 def extract_facts(goal: str, subtask_desc: str, action_result: Any) -> dict:
@@ -251,7 +264,7 @@ def extract_facts(goal: str, subtask_desc: str, action_result: Any) -> dict:
         f"Active Subtask: {subtask_desc}\n"
         f"Tool Result: {json.dumps(action_result)[:2000]}"
     )
-    res = call_llm(system, user, EVALUATION_MODEL, temperature=0.0)
+    res = safe_call_llm(system, user, EVALUATION_MODEL, temperature=0.0, fallback='{}')
     try:
         return json.loads(res)
     except json.JSONDecodeError:
@@ -274,7 +287,12 @@ def resolve_inconsistency(goal: str, facts: dict, new_result: Any) -> dict:
         f"Prior Confirmed Facts: {json.dumps(facts)}\n"
         f"Latest Tool Result: {json.dumps(new_result)[:2000]}"
     )
-    res = call_llm(system, user, REASONING_MODEL, temperature=0.0)
+    fallback_json = json.dumps({
+        "resolution": "Failed to resolve contradiction due to LLM error.",
+        "status": "needs_verification",
+        "verification_query": "verify " + goal
+    })
+    res = safe_call_llm(system, user, REASONING_MODEL, temperature=0.0, fallback=fallback_json)
     try:
         return json.loads(res)
     except json.JSONDecodeError:
