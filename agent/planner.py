@@ -47,8 +47,8 @@ def replan(mem: WorkingMemory, failed_subtask: SubTask, record: StepRecord) -> L
         f"Summary Log: {mem.summary_log}\n"
     )
     
-    res = llm.call_llm(system, user, llm.REASONING_MODEL, temperature=0.0)
     try:
+        res = llm.call_llm(system, user, llm.REASONING_MODEL, temperature=0.0)
         data = json.loads(res)
         raw_subtasks = data.get("subtasks", [])
     except Exception:
