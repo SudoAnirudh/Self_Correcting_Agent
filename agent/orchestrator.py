@@ -83,13 +83,41 @@ def run(goal: str, tools: ToolRouter, use_self_correction: bool = True) -> Tuple
         
         # 4. Self-Correction / Evaluator Loop
         if use_self_correction:
-            # To be implemented in Step 6
-            # For now, fallback to baseline behavior
-            subtask.status = "done"
-            subtask.result = str(result)
-            facts = llm.extract_facts(goal, subtask.description, result)
-            for k, v in facts.items():
-                mem.facts[k] = v
+            from agent import evaluator
+            from agent import recovery
+            from dataclasses import asdict
+            
+            verdict, eval_reasoning = evaluator.evaluate_step(
+                goal, subtask.description, asdict(record), mem.facts
+            )
+            
+            record.eval_verdict = verdict
+            record.eval_reasoning = eval_reasoning
+            
+            if verdict == "success":
+                subtask.status = "done"
+                subtask.result = str(result)
+                # Extract facts
+                facts = llm.extract_facts(goal, subtask.description, result)
+                for k, v in facts.items():
+                    mem.facts[k] = v
+            else:
+                # Trigger specific recovery strategy
+                if verdict == "tool_failure":
+                    strategy, details, next_status = recovery.recover_tool_failure(
+                        mem, subtask, record, step_num
+                    )
+                elif verdict == "inconsistent":
+                    strategy, details, next_status = recovery.recover_inconsistency(
+                        mem, subtask, record, step_num
+                    )
+                else: # goal_drift
+                    strategy, details, next_status = recovery.recover_goal_drift(
+                        mem, subtask, record, step_num
+                    )
+                
+                # Log recovery event
+                logger.log_recovery(subtask.id, strategy, details)
         else:
             # BASELINE MODE: mark done regardless, extract facts directly
             subtask.status = "done"
