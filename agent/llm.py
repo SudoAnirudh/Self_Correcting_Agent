@@ -6,8 +6,8 @@ from datetime import datetime, timezone
 from typing import Dict, Any, List, Optional
 
 # Constants
-REASONING_MODEL = "llama-3.1-8b-instant"
-EVALUATION_MODEL = "llama-3.1-8b-instant"
+REASONING_MODEL = "meta/llama-3.1-70b-instruct"
+EVALUATION_MODEL = "meta/llama-3.1-8b-instruct"
 
 # Load environment variables from .env if present
 def load_dotenv():
@@ -21,18 +21,27 @@ def load_dotenv():
 
 load_dotenv()
 
-def get_api_key() -> str:
-    key = os.environ.get("GROQ_API_KEY")
-    if not key:
-        raise ValueError("GROQ_API_KEY is not set in environment or .env file.")
-    return key
+def get_api_key(model: str) -> str:
+    if "meta/" in model:
+        key = os.environ.get("NVIDIA_API_KEY")
+        if not key:
+            raise ValueError("NVIDIA_API_KEY is not set in environment or .env file.")
+        return key
+    else:
+        key = os.environ.get("GROQ_API_KEY")
+        if not key:
+            raise ValueError("GROQ_API_KEY is not set in environment or .env file.")
+        return key
 
 def call_llm(system: str, user: str, model: str, temperature: float = 0.0) -> str:
-    """Wrapper that calls the Groq Chat Completions API with exponential backoff on transient errors."""
+    """Wrapper that calls the LLM Chat Completions API with exponential backoff on transient errors."""
     import time
     time.sleep(1.0)
-    api_key = get_api_key()
-    url = "https://api.groq.com/openai/v1/chat/completions"
+    api_key = get_api_key(model)
+    if "meta/" in model:
+        url = "https://integrate.api.nvidia.com/v1/chat/completions"
+    else:
+        url = "https://api.groq.com/openai/v1/chat/completions"
     
     headers = {
         "Authorization": f"Bearer {api_key}",
