@@ -1,4 +1,4 @@
-# Antigravity Self-Correcting ReAct Agent
+#  Self-Correcting ReAct Agent
 
 An autonomous, self-correcting multi-step ReAct agent for web research and synthesis, built entirely from scratch with no external agent framework.
 

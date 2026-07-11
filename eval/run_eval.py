@@ -33,7 +33,7 @@ def grade_answer(goal: str, expected: str, actual: str) -> bool:
 
 def main():
     print("==================================================")
-    print("Starting Antigravity Self-Correction Evaluation")
+    print("Starting Self-Correction Evaluation")
     print("==================================================")
     
     with open("eval/goals.json", "r", encoding="utf-8") as f:
