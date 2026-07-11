@@ -34,7 +34,8 @@ def get_api_key(model: str) -> str:
         return key
 
 def call_llm(system: str, user: str, model: str, temperature: float = 0.0) -> str:
-    """Wrapper that calls the LLM Chat Completions API with exponential backoff on transient errors."""
+    """Wrapper that calls the LLM Chat Completions API with exponential backoff on transient errors.
+    If NVIDIA fails, triggers an emergency fallback to Groq."""
     import time
     time.sleep(1.0)
     api_key = get_api_key(model)
@@ -59,7 +60,7 @@ def call_llm(system: str, user: str, model: str, temperature: float = 0.0) -> st
         "response_format": {"type": "json_object"} if "json" in system.lower() or "json" in user.lower() else None
     }
     
-    max_retries = 5
+    max_retries = 3
     backoff = 2
     
     for attempt in range(max_retries):
@@ -87,7 +88,7 @@ def call_llm(system: str, user: str, model: str, temperature: float = 0.0) -> st
                 continue
                 
             if not response.ok:
-                print(f"Groq API Error details: {response.text}")
+                print(f"LLM API Error details: {response.text}")
             response.raise_for_status()
             resp_json = response.json()
             content = resp_json["choices"][0]["message"]["content"]
@@ -111,12 +112,18 @@ def call_llm(system: str, user: str, model: str, temperature: float = 0.0) -> st
             
         except requests.exceptions.RequestException as e:
             if attempt == max_retries - 1:
+                if "meta/" in model:
+                    print(f"Emergency fallback: NVIDIA failed with {e}. Retrying with Groq model (llama-3.1-8b-instant)...")
+                    return call_llm(system, user, "llama-3.1-8b-instant", temperature)
                 raise e
             sleep_time = backoff ** (attempt + 1)
             print(f"Request exception: {str(e)}. Retrying in {sleep_time:.2f} seconds...")
             time.sleep(sleep_time)
             
-    raise RuntimeError("Failed to get response from Groq API after max retries.")
+    if "meta/" in model:
+        print("Emergency fallback (loop exhausted): NVIDIA failed. Retrying with Groq model...")
+        return call_llm(system, user, "llama-3.1-8b-instant", temperature)
+    raise RuntimeError("Failed to get response from LLM API after max retries.")
 
 def safe_call_llm(system: str, user: str, model: str, temperature: float = 0.0, fallback: str = "") -> str:
     """Safely calls call_llm catching all exceptions to prevent orchestrator crash."""
