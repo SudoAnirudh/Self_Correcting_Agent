@@ -6,4 +6,4 @@ logs/
 .pytest_cache/
 .env
 
-docs
+docs/

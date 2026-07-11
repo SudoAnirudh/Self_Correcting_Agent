@@ -6,8 +6,8 @@ from datetime import datetime, timezone
 from typing import Dict, Any, List, Optional
 
 # Constants
-REASONING_MODEL = "meta/llama-3.1-8b-instruct"
-EVALUATION_MODEL = "meta/llama-3.1-8b-instruct"
+REASONING_MODEL = "llama-3.1-8b-instant"
+EVALUATION_MODEL = "llama-3.1-8b-instant"
 
 # Load environment variables from .env if present
 def load_dotenv():
@@ -37,7 +37,10 @@ def call_llm(system: str, user: str, model: str, temperature: float = 0.0) -> st
     """Wrapper that calls the LLM Chat Completions API with exponential backoff on transient errors.
     If NVIDIA fails, triggers an emergency fallback to Groq."""
     import time
-    time.sleep(1.0)
+    if "meta/" in model:
+        time.sleep(1.0)
+    else:
+        time.sleep(2.2)
     api_key = get_api_key(model)
     if "meta/" in model:
         url = "https://integrate.api.nvidia.com/v1/chat/completions"
