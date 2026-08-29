@@ -1,156 +1,155 @@
 import time
-import random
 from datetime import datetime, timezone
-from typing import Tuple, List, Optional
+from typing import Tuple, Optional
+from dataclasses import asdict
 from agent.memory import WorkingMemory, SubTask, StepRecord
 from agent.logger import AgentLogger
 from agent.tools import ToolRouter
 from agent import llm
 from agent import planner
+from agent.evaluator import evaluate_step
+from agent.validation import choose_recovery
+
+MAX_STEPS = 25
+MAX_RECOVERY_PER_SUBTASK = 3
+
 
 def pick_next_subtask(mem: WorkingMemory) -> Optional[SubTask]:
-    for t in mem.subtasks:
-        if t.status in ("pending", "in_progress"):
-            return t
+    for task in mem.subtasks:
+        if task.status in ("pending", "in_progress"):
+            return task
     return None
+
+
+def _fingerprint(value) -> str:
+    import hashlib
+    import json
+    return hashlib.sha256(json.dumps(value, sort_keys=True, default=str).encode()).hexdigest()[:16]
+
+
+def _reformulate_subtask(mem: WorkingMemory, subtask: SubTask, finding: dict) -> None:
+    """Ask the reasoner for a new approach without granting it acceptance authority."""
+    snap = mem.snapshot()
+    proposal = llm.reason(snap, {
+        "id": subtask.id,
+        "description": subtask.description,
+        "status": "pending",
+        "attempts": subtask.attempts,
+        "result": subtask.result,
+        "recovery": {
+            "reason_code": finding.get("reason_code"),
+            "details": finding.get("details"),
+            "evidence": finding.get("evidence", {})
+        }
+    })
+    action = proposal.get("action", "")
+    if action:
+        subtask.description = f"{subtask.description} | Reformulate using a different approach after {finding.get('reason_code')}"
+    subtask.status = "pending"
+
 
 def run(goal: str, tools: ToolRouter, use_self_correction: bool = True) -> Tuple[WorkingMemory, str]:
     mode = "self_correcting" if use_self_correction else "baseline"
     logger = AgentLogger(goal=goal, mode=mode)
-    
     mem = WorkingMemory(goal=goal)
-    
-    # 1. Planner Decompose
+
     subtasks = planner.decompose(goal)
     mem.subtasks = subtasks
-    
-    # Log the initial plan
-    logger.log_plan([
-        {"id": t.id, "description": t.description, "status": t.status} 
-        for t in mem.subtasks
-    ])
-    
-    # Log run start
-    models_info = {
+    logger.log_plan([{"id": t.id, "description": t.description, "status": t.status} for t in mem.subtasks])
+    logger.log_run_start(goal, tools.seed, mode, {
         "reasoning": {"model": llm.REASONING_MODEL, "temperature": 0.0},
-        "evaluation": {"model": llm.EVALUATION_MODEL, "temperature": 0.0}
-    }
-    logger.log_run_start(goal, tools.seed, mode, models_info)
-    
+        "evaluation": {"mode": "deterministic"}
+    })
+
     step_num = 0
-    MAX_STEPS = 25
-    
+    seen_fingerprints = set()
+
     while step_num < MAX_STEPS:
         subtask = pick_next_subtask(mem)
         if not subtask:
             break
-            
         step_num += 1
         subtask.status = "in_progress"
-        
-        # 2. LLM reasoning call (Thought)
-        subtask_snap = {
+
+        thought = llm.reason(mem.snapshot(), {
             "id": subtask.id,
             "description": subtask.description,
             "status": subtask.status,
             "attempts": subtask.attempts,
             "result": subtask.result
-        }
-        thought_data = llm.reason(mem.snapshot(), subtask_snap)
-        
-        action_name = thought_data.get("action")
-        action_input = thought_data.get("action_input", {})
-        
-        reasoning_str = (
-            f"Belief: {thought_data.get('belief', '')} | "
-            f"Gap: {thought_data.get('gap', '')} | "
-            f"Why Action: {thought_data.get('why_action', '')}"
+        })
+        action = thought.get("action")
+        action_input = thought.get("action_input", {})
+        reasoning = (
+            f"Belief: {thought.get('belief', '')} | Gap: {thought.get('gap', '')} | "
+            f"Why Action: {thought.get('why_action', '')}"
         )
-        
-        # 3. Dispatch action via ToolRouter (Action & Observation)
-        result = tools.call(action_name, action_input)
-        
+
+        result = tools.call(action, action_input)
         record = StepRecord(
             step_num=step_num,
-            reasoning=reasoning_str,
-            action=action_name,
+            reasoning=reasoning,
+            action=action,
             action_input=action_input,
             action_result=result,
             eval_verdict=None,
             eval_reasoning=None,
             timestamp=datetime.now(timezone.utc).isoformat()
         )
-        
-        # 4. Self-Correction / Evaluator Loop
+
         if use_self_correction:
-            from agent import evaluator
-            from agent import recovery
-            from dataclasses import asdict
-            
-            verdict, eval_reasoning = evaluator.evaluate_step(
-                goal, subtask.description, asdict(record), mem.facts
+            previous = mem.history[-1].action_result if mem.history and mem.history[-1].action == action else None
+            finding = evaluate_step(goal, subtask.description, asdict(record), mem.facts, previous)
+            record.eval_verdict = finding["status"]
+            record.eval_reasoning = finding["details"]
+            fingerprint = _fingerprint(result)
+            repeated = fingerprint in seen_fingerprints
+            seen_fingerprints.add(fingerprint)
+
+            decision = choose_recovery(
+                __import__("agent.validation", fromlist=["ValidationFinding"]).ValidationFinding(
+                    status=finding["status"], reason_code=finding["reason_code"],
+                    details=finding["details"], progress=finding["progress"],
+                    acceptance_ready=finding["acceptance_ready"], evidence=finding["evidence"]
+                ),
+                action, subtask.attempts, MAX_RECOVERY_PER_SUBTASK, repeated
             )
-            
-            record.eval_verdict = verdict
-            record.eval_reasoning = eval_reasoning
-            
-            if verdict == "success":
+
+            if decision.action == "stop" and finding["acceptance_ready"] and finding["status"] == "success":
                 subtask.status = "done"
                 subtask.result = str(result)
-                # Extract facts
                 facts = llm.extract_facts(goal, subtask.description, result)
-                for k, v in facts.items():
-                    mem.facts[k] = v
+                mem.facts.update(facts)
+            elif decision.action == "escalate":
+                subtask.status = "unresolvable"
+                subtask.result = decision.reason
+                logger.log_recovery(subtask.id, "escalate", decision.reason)
+            elif decision.action == "reformulate":
+                subtask.attempts += 1
+                mem.global_recovery_attempts += 1
+                _reformulate_subtask(mem, subtask, finding)
+                logger.log_recovery(subtask.id, "reformulate", decision.reason)
+            elif decision.action == "retry":
+                subtask.attempts += 1
+                mem.global_recovery_attempts += 1
+                subtask.status = "pending"
+                logger.log_recovery(subtask.id, "retry", decision.reason)
             else:
-                # Trigger specific recovery strategy
-                if verdict == "tool_failure":
-                    strategy, details, next_status = recovery.recover_tool_failure(
-                        mem, subtask, record, step_num
-                    )
-                elif verdict == "inconsistent":
-                    strategy, details, next_status = recovery.recover_inconsistency(
-                        mem, subtask, record, step_num
-                    )
-                else: # goal_drift
-                    strategy, details, next_status = recovery.recover_goal_drift(
-                        mem, subtask, record, step_num
-                    )
-                
-                # Log recovery event
-                logger.log_recovery(subtask.id, strategy, details)
+                subtask.status = "unresolvable"
+                subtask.result = decision.reason
+                logger.log_recovery(subtask.id, "stop", decision.reason)
         else:
-            # BASELINE MODE: mark done regardless, extract facts directly
             subtask.status = "done"
             subtask.result = str(result)
-            
-            # Extract facts from result and merge
-            facts = llm.extract_facts(goal, subtask.description, result)
-            for k, v in facts.items():
-                mem.facts[k] = v
-                
+            mem.facts.update(llm.extract_facts(goal, subtask.description, result))
+
         mem.add_step(record)
         logger.log_step(record)
-        
-    # 5. Synthesis phase
+
     unresolved = [
-        {
-            "id": t.id, 
-            "description": t.description, 
-            "status": t.status, 
-            "attempts": t.attempts, 
-            "result": t.result
-        } 
+        {"id": t.id, "description": t.description, "status": t.status, "attempts": t.attempts, "result": t.result}
         for t in mem.subtasks if t.status not in ("done", "unresolvable")
     ]
-    
     final_output = llm.synthesize(goal, mem.facts, mem.summary_log, unresolved)
-    
-    # Log run end
-    logger.log_run_end(
-        final_output=final_output,
-        unresolved_subtasks=unresolved,
-        total_steps=step_num,
-        total_recoveries=mem.global_recovery_attempts
-    )
-    
+    logger.log_run_end(final_output, unresolved, step_num, mem.global_recovery_attempts)
     return mem, final_output
