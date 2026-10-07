@@ -33,18 +33,12 @@ def call_llm(system: str, user: str, model: str, temperature: float = 0.0) -> st
     If NVIDIA fails, triggers an emergency fallback to Groq."""
     import time
     api_key = get_api_key(model)
-    if api_key == "mock_api_key":
-        raise RuntimeError(f"API key for {model} is not configured.")
-
-    if "meta/" in model:
-        time.sleep(1.0)
-    else:
-        time.sleep(2.2)
 
     if "meta/" in model:
         url = "https://integrate.api.nvidia.com/v1/chat/completions"
     else:
         url = "https://api.groq.com/openai/v1/chat/completions"
+
 
     
     headers = {
@@ -76,6 +70,9 @@ def call_llm(system: str, user: str, model: str, temperature: float = 0.0) -> st
                 # If mocked in unit test, assume success
                 status_code = 200
                 
+            if status_code in (401, 403):
+                response.raise_for_status()
+
             # Handle rate limiting (429) and transient server errors (5xx)
             if status_code == 429:
                 retry_after = response.headers.get("retry-after")
@@ -114,6 +111,8 @@ def call_llm(system: str, user: str, model: str, temperature: float = 0.0) -> st
             return content
             
         except requests.exceptions.RequestException as e:
+            if hasattr(e, "response") and e.response is not None and getattr(e.response, "status_code", 0) in (401, 403):
+                raise e
             if attempt == max_retries - 1:
                 if "meta/" in model:
                     print(f"Emergency fallback: NVIDIA failed with {e}. Retrying with Groq model (llama-3.1-8b-instant)...")
@@ -139,13 +138,13 @@ def safe_call_llm(system: str, user: str, model: str, temperature: float = 0.0, 
 # 1. Planner Decompose
 def decompose(goal: str) -> dict:
     system = (
-        "You are an expert research planner. Decompose the user's research goal into a sequence of concrete, atomic subtasks. "
-        "Each subtask must represent a single search or fetch/extract step. "
+        "You are an expert research planner. Decompose the user's research goal into subtasks with explicit dependencies. "
+        "Each subtask must represent a single search or fetch/extract step. Specify subtask IDs in depends_on if a task requires previous outputs. "
         "Output JSON ONLY in this format:\n"
         "{\n"
         '  "subtasks": [\n'
-        '    {"id": "s1", "description": "Search for X", "status": "pending"},\n'
-        '    {"id": "s2", "description": "Fetch page Y to extract details", "status": "pending"}\n'
+        '    {"id": "s1", "description": "Search for X", "status": "pending", "depends_on": []},\n'
+        '    {"id": "s2", "description": "Fetch page Y to extract details", "status": "pending", "depends_on": ["s1"]}\n'
         "  ]\n"
         "}"
     )

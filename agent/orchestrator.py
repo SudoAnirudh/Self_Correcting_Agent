@@ -9,8 +9,11 @@ from agent import llm
 from agent import planner
 
 def pick_next_subtask(mem: WorkingMemory) -> Optional[SubTask]:
+    ready = mem.get_ready_subtasks()
+    if ready:
+        return ready[0]
     for t in mem.subtasks:
-        if t.status in ("pending", "in_progress"):
+        if t.status in ("pending", "ready", "in_progress"):
             return t
     return None
 
@@ -26,7 +29,7 @@ def run(goal: str, tools: ToolRouter, use_self_correction: bool = True) -> Tuple
     
     # Log the initial plan
     logger.log_plan([
-        {"id": t.id, "description": t.description, "status": t.status} 
+        {"id": t.id, "description": t.description, "status": t.status, "depends_on": t.depends_on} 
         for t in mem.subtasks
     ])
     
@@ -53,6 +56,7 @@ def run(goal: str, tools: ToolRouter, use_self_correction: bool = True) -> Tuple
             "id": subtask.id,
             "description": subtask.description,
             "status": subtask.status,
+            "depends_on": subtask.depends_on,
             "attempts": subtask.attempts,
             "result": subtask.result
         }
@@ -124,8 +128,13 @@ def run(goal: str, tools: ToolRouter, use_self_correction: bool = True) -> Tuple
                         mem, subtask, record, step_num
                     )
                 
+                # If recovery is exhausted or failed permanently, mark dependent branch blocked
+                if subtask.status in ("unresolvable", "failed"):
+                    mem.mark_branch_blocked(subtask.id)
+
                 # Log recovery event
                 logger.log_recovery(subtask.id, strategy, details)
+
         else:
             # BASELINE MODE: mark done regardless, extract facts directly
             subtask.status = "done"

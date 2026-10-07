@@ -4,22 +4,26 @@ from agent.memory import SubTask, WorkingMemory, StepRecord
 from agent import llm
 
 def decompose(goal: str) -> List[SubTask]:
-    """Decompose the goal into subtasks."""
+    """Decompose the goal into subtasks with dependency graphs."""
     data = llm.decompose(goal)
     subtasks = []
     # If the LLM failed or returned no subtasks, create a fallback plan
     raw_subtasks = data.get("subtasks", [])
     if not raw_subtasks:
         raw_subtasks = [
-            {"id": "s1", "description": f"Perform initial search on: {goal}", "status": "pending"},
-            {"id": "s2", "description": "Synthesize final response from findings", "status": "pending"}
+            {"id": "s1", "description": f"Perform initial search on: {goal}", "status": "pending", "depends_on": []},
+            {"id": "s2", "description": "Synthesize final response from findings", "status": "pending", "depends_on": ["s1"]}
         ]
         
     for item in raw_subtasks:
+        deps = item.get("depends_on", [])
+        if not isinstance(deps, list):
+            deps = []
         subtasks.append(SubTask(
             id=item["id"],
             description=item["description"],
-            status=item.get("status", "pending")
+            status=item.get("status", "pending"),
+            depends_on=deps
         ))
     return subtasks
 
@@ -33,8 +37,8 @@ def replan(mem: WorkingMemory, failed_subtask: SubTask, record: StepRecord) -> L
         "Provide JSON ONLY in the following format:\n"
         "{\n"
         '  "subtasks": [\n'
-        '    {"id": "r1", "description": "New search for...", "status": "pending"},\n'
-        '    {"id": "r2", "description": "Synthesize the data...", "status": "pending"}\n'
+        '    {"id": "r1", "description": "New search for...", "status": "pending", "depends_on": []},\n'
+        '    {"id": "r2", "description": "Synthesize the data...", "status": "pending", "depends_on": ["r1"]}\n'
         '  ]\n'
         "}"
     )
@@ -57,15 +61,20 @@ def replan(mem: WorkingMemory, failed_subtask: SubTask, record: StepRecord) -> L
     new_subtasks = []
     if raw_subtasks:
         for item in raw_subtasks:
+            deps = item.get("depends_on", [])
+            if not isinstance(deps, list):
+                deps = []
             new_subtasks.append(SubTask(
                 id=item["id"],
                 description=item["description"],
-                status=item.get("status", "pending")
+                status=item.get("status", "pending"),
+                depends_on=deps
             ))
     else:
         # Fallback if parsing or call fails: keep the failed subtask but reset status, and add a search task
         new_subtasks = [
-            SubTask(id="r1", description=f"Search for fallback alternative for {failed_subtask.description}", status="pending"),
-            SubTask(id="r2", description="Synthesize available details", status="pending")
+            SubTask(id="r1", description=f"Search for fallback alternative for {failed_subtask.description}", status="pending", depends_on=[]),
+            SubTask(id="r2", description="Synthesize available details", status="pending", depends_on=["r1"])
         ]
     return new_subtasks
+

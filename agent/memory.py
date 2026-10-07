@@ -6,7 +6,8 @@ from datetime import datetime, timezone
 class SubTask:
     id: str
     description: str
-    status: Literal["pending", "in_progress", "done", "failed", "unresolvable"]
+    status: Literal["pending", "ready", "in_progress", "done", "completed", "blocked", "failed", "unresolvable"] = "pending"
+    depends_on: List[str] = field(default_factory=list)
     attempts: int = 0
     result: Optional[str] = None
 
@@ -32,6 +33,32 @@ class WorkingMemory:
     recovery_log: List[dict] = field(default_factory=list)
     learned_constraints: List[str] = field(default_factory=list)
     global_recovery_attempts: int = 0
+
+    def get_ready_subtasks(self) -> List[SubTask]:
+        """Returns subtasks whose status is pending/ready and all dependencies are completed/done."""
+        finished_ids = {
+            t.id for t in self.subtasks if t.status in ("done", "completed")
+        }
+        ready = []
+        for task in self.subtasks:
+            if task.status in ("pending", "ready"):
+                if all(dep_id in finished_ids for dep_id in task.depends_on):
+                    task.status = "ready"
+                    ready.append(task)
+        return ready
+
+    def mark_branch_blocked(self, failed_subtask_id: str):
+        """Transitively marks downstream subtasks dependent on a failed subtask as blocked."""
+        blocked_ids = {failed_subtask_id}
+        changed = True
+        while changed:
+            changed = False
+            for task in self.subtasks:
+                if task.id not in blocked_ids and task.status not in ("done", "completed"):
+                    if any(dep_id in blocked_ids for dep_id in task.depends_on):
+                        blocked_ids.add(task.id)
+                        task.status = "blocked"
+                        changed = True
 
     def add_step(self, record: StepRecord):
         """Append a new StepRecord and truncate/summarize history if it exceeds 4 items."""
@@ -97,6 +124,7 @@ class WorkingMemory:
                     "id": task.id,
                     "description": task.description,
                     "status": task.status,
+                    "depends_on": task.depends_on,
                     "attempts": task.attempts,
                     "result": task.result
                 } for task in self.subtasks
@@ -120,4 +148,5 @@ class WorkingMemory:
             "recovery_log": self.recovery_log,
             "global_recovery_attempts": self.global_recovery_attempts
         }
+
 

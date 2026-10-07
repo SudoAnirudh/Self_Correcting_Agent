@@ -1,9 +1,11 @@
 import os
 import json
 import time
+import argparse
 from agent import orchestrator
 from agent.tools import ToolRouter
 from agent import llm
+from eval.chaos_matrix import ChaosToolRouter, ChaosConfig
 
 def grade_answer(goal: str, expected: str, actual: str) -> bool:
     """Grades the actual answer against the expected reference using Groq."""
@@ -27,19 +29,23 @@ def grade_answer(goal: str, expected: str, actual: str) -> bool:
         data = json.loads(res)
         return bool(data.get("correct", False))
     except Exception as e:
-        print(f"Error grading answer: {e}")
         # Fallback keyword checking if LLM fails
         return expected.lower() in actual.lower()
 
 def main():
+    parser = argparse.ArgumentParser(description="Run Self-Correction Benchmark Evaluation")
+    parser.add_argument("--chaos", action="store_true", help="Enable adversarial chaos fault injection matrix")
+    args = parser.parse_args()
+
     print("==================================================")
-    print("Starting Self-Correction Evaluation")
+    print(f"Starting Self-Correction Evaluation {'[CHAOS MODE ENABLED]' if args.chaos else ''}")
     print("==================================================")
     
     with open("eval/goals.json", "r", encoding="utf-8") as f:
         goals = json.load(f)
         
     results = []
+    total_chaos_faults = 0
     
     for i, item in enumerate(goals, 1):
         goal_id = item["id"]
@@ -50,7 +56,6 @@ def main():
         
         # --- 1. RUN BASELINE ---
         print("  Running Baseline Mode...")
-        # Clean / force mocks for reproducible eval
         tools_baseline = ToolRouter(seed=12345, force_mocks=True)
         start_t = time.time()
         mem_base, ans_base = orchestrator.run(description, tools_baseline, use_self_correction=False)
@@ -59,15 +64,22 @@ def main():
         
         # --- 2. RUN SELF-CORRECTING ---
         print("  Running Self-Correcting Mode...")
-        tools_sc = ToolRouter(seed=12345, force_mocks=True)
+        if args.chaos:
+            tools_sc = ChaosToolRouter(seed=12345, force_mocks=True, chaos_config=ChaosConfig(chaos_rate=0.3, seed=12345))
+        else:
+            tools_sc = ToolRouter(seed=12345, force_mocks=True)
+
         start_t = time.time()
         mem_sc, ans_sc = orchestrator.run(description, tools_sc, use_self_correction=True)
         dur_sc = time.time() - start_t
         is_correct_sc = grade_answer(description, expected, ans_sc)
         
+        if args.chaos:
+            total_chaos_faults += tools_sc.injected_faults_count
+
         # Count unresolved
-        unresolved_base = [t for t in mem_base.subtasks if t.status not in ("done", "unresolvable")]
-        unresolved_sc = [t for t in mem_sc.subtasks if t.status not in ("done", "unresolvable")]
+        unresolved_base = [t for t in mem_base.subtasks if t.status not in ("done", "completed", "unresolvable")]
+        unresolved_sc = [t for t in mem_sc.subtasks if t.status not in ("done", "completed", "unresolvable")]
         
         goal_results = {
             "id": goal_id,
@@ -87,13 +99,16 @@ def main():
                 "duration_seconds": dur_sc,
                 "correct": is_correct_sc,
                 "recoveries": mem_sc.global_recovery_attempts,
-                "unresolved_subtasks": len(unresolved_sc)
+                "unresolved_subtasks": len(unresolved_sc),
+                "chaos_faults_injected": getattr(tools_sc, "injected_faults_count", 0)
             }
         }
         results.append(goal_results)
         
         print(f"  Baseline:        {'PASS' if is_correct_base else 'FAIL'} | Steps: {goal_results['baseline']['steps']} | Time: {dur_base:.2f}s")
         print(f"  Self-Correcting: {'PASS' if is_correct_sc else 'FAIL'} | Steps: {goal_results['self_correcting']['steps']} | Recoveries: {goal_results['self_correcting']['recoveries']} | Time: {dur_sc:.2f}s")
+        if args.chaos:
+            print(f"    [Chaos] Injected Faults: {tools_sc.injected_faults_count} | Breakdown: {tools_sc.fault_breakdown}")
         
     # Save results summary to logs/eval_results.json
     os.makedirs("logs", exist_ok=True)
@@ -102,7 +117,10 @@ def main():
         
     print("\n==================================================")
     print("Evaluation Completed. Summary saved to logs/eval_results.json")
+    if args.chaos:
+        print(f"Total Chaos Faults Injected across 10 goals: {total_chaos_faults}")
     print("==================================================")
 
 if __name__ == "__main__":
     main()
+
