@@ -8,8 +8,10 @@ from bs4 import BeautifulSoup
 from agent.mock_data import MOCK_SEARCH, MOCK_FETCH
 
 # Input & Output Schemas
+# Input & Output Schemas
 class SearchInput(BaseModel):
     query: str
+    dry_run: bool = False
 
 class SearchResult(BaseModel):
     title: str
@@ -21,11 +23,39 @@ class SearchOutput(BaseModel):
 
 class FetchInput(BaseModel):
     url: str
+    dry_run: bool = False
 
 class FetchResult(BaseModel):
     url: str
     text: str
     fetched_at: str
+
+# Side-effecting Tool Schemas for Dry-Run and Safety Checks
+class PaymentInput(BaseModel):
+    amount: float
+    currency: str = "USD"
+    recipient: str
+    dry_run: bool = False
+
+class DeleteInput(BaseModel):
+    resource_id: str
+    resource_type: str = "record"
+    dry_run: bool = False
+
+class SendInput(BaseModel):
+    recipient: str
+    message: str
+    dry_run: bool = False
+
+class WriteInput(BaseModel):
+    path: str
+    content: str
+    dry_run: bool = False
+
+class UpdateInput(BaseModel):
+    resource_id: str
+    payload: Dict[str, Any]
+    dry_run: bool = False
 
 # Helper matching functions
 def match_mock_search(query: str) -> Optional[List[dict]]:
@@ -56,6 +86,15 @@ class ToolRouter:
         except (ValidationError, ValueError) as e:
             return {"error": "invalid_input", "detail": str(e)}
 
+        # Check for dry_run mode on side-effecting or any tool
+        if getattr(validated_input, "dry_run", False):
+            return {
+                "dry_run": True,
+                "status": "validated",
+                "tool": name,
+                "parameters": validated_input.model_dump()
+            }
+
         try:
             raw_result = self._dispatch(name, validated_input)
             # Check if result is a structured error dict from the tool itself
@@ -74,6 +113,16 @@ class ToolRouter:
             return SearchInput.model_validate(raw_input)
         elif name in ("fetch", "flaky_fetch"):
             return FetchInput.model_validate(raw_input)
+        elif name == "payment":
+            return PaymentInput.model_validate(raw_input)
+        elif name == "delete":
+            return DeleteInput.model_validate(raw_input)
+        elif name == "send":
+            return SendInput.model_validate(raw_input)
+        elif name == "write":
+            return WriteInput.model_validate(raw_input)
+        elif name == "update":
+            return UpdateInput.model_validate(raw_input)
         else:
             raise ValueError(f"Unknown tool name: {name}")
 
@@ -82,6 +131,8 @@ class ToolRouter:
             return SearchOutput.model_validate(raw_result).model_dump()
         elif name in ("fetch", "flaky_fetch"):
             return FetchResult.model_validate(raw_result).model_dump()
+        elif isinstance(raw_result, dict):
+            return raw_result
         else:
             raise ValueError(f"Unknown tool name: {name}")
 
@@ -92,6 +143,14 @@ class ToolRouter:
             return self._fetch_tool(validated_input.url)
         elif name == "flaky_fetch":
             return self._flaky_fetch_tool(validated_input.url)
+        elif name in ("payment", "delete", "send", "write", "update"):
+            return {
+                "status": "success",
+                "action": name,
+                "executed_at": datetime.now(timezone.utc).isoformat(),
+                "details": f"Executed side-effecting action {name}"
+            }
+
 
     def _search_tool(self, query: str) -> dict:
         # Check mock database first

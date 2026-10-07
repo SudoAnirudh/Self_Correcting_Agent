@@ -78,7 +78,8 @@ def run(goal: str, tools: ToolRouter, use_self_correction: bool = True) -> Tuple
             action_result=result,
             eval_verdict=None,
             eval_reasoning=None,
-            timestamp=datetime.now(timezone.utc).isoformat()
+            timestamp=datetime.now(timezone.utc).isoformat(),
+            subtask_id=subtask.id
         )
         
         # 4. Self-Correction / Evaluator Loop
@@ -101,6 +102,13 @@ def run(goal: str, tools: ToolRouter, use_self_correction: bool = True) -> Tuple
                 facts = llm.extract_facts(goal, subtask.description, result)
                 for k, v in facts.items():
                     mem.facts[k] = v
+
+                # If subtask required recovery attempts, compact history and extract learned constraints
+                if subtask.attempts > 0:
+                    mem.compact_subtask(subtask.id, strategy="self_correction")
+                    invariant = f"Subtask [{subtask.description}] invariant: Resolved via {action_name} with params {action_input}"
+                    if invariant not in mem.learned_constraints:
+                        mem.learned_constraints.append(invariant)
             else:
                 # Trigger specific recovery strategy
                 if verdict == "tool_failure":
@@ -130,6 +138,7 @@ def run(goal: str, tools: ToolRouter, use_self_correction: bool = True) -> Tuple
                 
         mem.add_step(record)
         logger.log_step(record)
+
         
     # 5. Synthesis phase
     unresolved = [

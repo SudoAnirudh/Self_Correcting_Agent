@@ -60,11 +60,12 @@ def sanitize_error(error_type: str, detail: str) -> Dict[str, str]:
 
 def validate_result(goal: str, subtask_desc: str, action: str, result: Any,
                     prior_result: Optional[Any] = None) -> ValidationFinding:
-    """Validate tool output using deterministic checks only."""
+    """Validate tool output using deterministic checks only (Stage 1)."""
+    # 1. Schema / Type Validation
     if not isinstance(result, dict):
         return ValidationFinding(
             status="failure",
-            reason_code="invalid_result_shape",
+            reason_code="SCHEMA_VIOLATION",
             details="Tool result was not a structured object.",
         )
 
@@ -76,20 +77,32 @@ def validate_result(goal: str, subtask_desc: str, action: str, result: Any,
         )
 
     if "error" in result:
+        err_code = str(result.get("error", "tool_error"))
+        reason_code = "SCHEMA_VIOLATION" if err_code in ("invalid_input", "schema_mismatch") else err_code
         return ValidationFinding(
             status="failure",
-            reason_code=str(result.get("error", "tool_error")),
-            details=sanitize_error(result.get("error", "tool_error"), result.get("detail", ""))["detail"],
+            reason_code=reason_code,
+            details=sanitize_error(err_code, result.get("detail", ""))["detail"],
         )
 
-    # Search/fetch style research outputs: schema + minimum-content checks.
+    # 2. HTTP Status Code Checks
+    if "status_code" in result:
+        status_code = result["status_code"]
+        if isinstance(status_code, int) and status_code != 200:
+            return ValidationFinding(
+                status="failure",
+                reason_code="HTTP_ERROR",
+                details=f"HTTP status code {status_code} indicates a non-200 error response.",
+            )
+
+    # 3. Search/fetch style research outputs: schema + minimum-content checks
     if action == "search":
         rows = result.get("results")
         if not isinstance(rows, list):
-            return ValidationFinding("failure", "schema_mismatch", "Expected results list.")
+            return ValidationFinding("failure", "SCHEMA_VIOLATION", "Expected results list in search output.")
         valid_rows = [r for r in rows if isinstance(r, dict) and r.get("url")]
         if not valid_rows:
-            return ValidationFinding("failure", "empty_search", "Search returned no usable results.")
+            return ValidationFinding("failure", "EMPTY_OUTPUT", "Search returned no usable results.")
         fingerprint = _stable_fingerprint(result)
         progressed = prior_result is None or fingerprint != _stable_fingerprint(prior_result)
         return ValidationFinding(
@@ -102,14 +115,15 @@ def validate_result(goal: str, subtask_desc: str, action: str, result: Any,
         )
 
     if action in {"fetch", "flaky_fetch"}:
-        url = result.get("url")
         text = result.get("text")
-        if not isinstance(url, str) or not isinstance(text, str):
-            return ValidationFinding("failure", "schema_mismatch", "Expected url and text fields.")
+        if not isinstance(text, str):
+            return ValidationFinding("failure", "SCHEMA_VIOLATION", "Expected text field in fetch output.")
+        if len(text.strip()) < 10:
+            return ValidationFinding("failure", "MIN_LENGTH_VIOLATION", "Fetched content length is below minimum required threshold (10 characters).")
         lowered = text.lower()
         garbage_markers = ("access denied", "error 403", "forbidden", "timeout", "temporarily unavailable")
         if any(marker in lowered for marker in garbage_markers):
-            return ValidationFinding("failure", "invalid_fetch_content", "Fetched content is an error/garbage response.")
+            return ValidationFinding("failure", "HTTP_ERROR", "Fetched content contains HTTP error / access denial response.")
         progressed = prior_result is None or _stable_fingerprint(result) != _stable_fingerprint(prior_result)
         return ValidationFinding(
             status="success",
@@ -120,7 +134,10 @@ def validate_result(goal: str, subtask_desc: str, action: str, result: Any,
             evidence={"content_length": len(text), "fingerprint": _stable_fingerprint(result)},
         )
 
-    # Generic read-only tool contract.
+    # Generic read-only tool contract checks
+    if not result:
+        return ValidationFinding("failure", "EMPTY_OUTPUT", "Result payload is empty.")
+
     return ValidationFinding(
         status="success",
         reason_code="structured_output_ok",
@@ -129,6 +146,7 @@ def validate_result(goal: str, subtask_desc: str, action: str, result: Any,
         acceptance_ready=True,
         evidence={"fingerprint": _stable_fingerprint(result)},
     )
+
 
 
 def choose_recovery(finding: ValidationFinding, action: str, attempt: int,

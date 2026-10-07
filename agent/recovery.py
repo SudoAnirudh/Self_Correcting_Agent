@@ -3,7 +3,18 @@ from agent.memory import WorkingMemory, SubTask, StepRecord
 from agent import planner
 from agent import llm
 
+import json
+
 MAX_RECOVERY_PER_SUBTASK = 3
+
+def build_negative_constraint(reason: str, failed_action: str, failed_input: dict) -> str:
+    """Construct explicit negative constraint block for recovery guidance."""
+    params_str = json.dumps(failed_input) if failed_input else "{}"
+    return (
+        f"PREVIOUS ATTEMPT FAILED: [{reason}]. "
+        f"EXPLICIT FORBIDDEN ACTION: Do NOT repeat action '{failed_action}' with parameters {params_str}. "
+        f"You MUST use alternative parameters or format."
+    )
 
 def check_budget(mem: WorkingMemory, subtask: SubTask, total_steps: int) -> bool:
     """Returns True if recovery is allowed under the budget caps, False otherwise."""
@@ -37,12 +48,18 @@ def recover_tool_failure(
     
     # Reset subtask to pending for retry
     subtask.status = "pending"
+
+    reason = record.eval_reasoning or record.eval_verdict or "Tool execution failed"
+    negative_constraint = build_negative_constraint(reason, record.action, record.action_input)
+    if negative_constraint not in mem.learned_constraints:
+        mem.learned_constraints.append(negative_constraint)
     
-    details = f"Retrying subtask. Attempt {subtask.attempts}."
+    details = f"Retrying subtask. Attempt {subtask.attempts}. {negative_constraint}"
     if record.action == "flaky_fetch":
         details += " Hint: flaky_fetch failed, prompting fallback to standard fetch."
         
     return "recover_tool_failure", details, "pending"
+
 
 def recover_inconsistency(
     mem: WorkingMemory, subtask: SubTask, record: StepRecord, total_steps: int

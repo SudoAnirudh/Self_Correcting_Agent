@@ -23,29 +23,29 @@ load_dotenv()
 
 def get_api_key(model: str) -> str:
     if "meta/" in model:
-        key = os.environ.get("NVIDIA_API_KEY")
-        if not key:
-            raise ValueError("NVIDIA_API_KEY is not set in environment or .env file.")
-        return key
+        return os.environ.get("NVIDIA_API_KEY", "mock_api_key")
     else:
-        key = os.environ.get("GROQ_API_KEY")
-        if not key:
-            raise ValueError("GROQ_API_KEY is not set in environment or .env file.")
-        return key
+        return os.environ.get("GROQ_API_KEY", "mock_api_key")
+
 
 def call_llm(system: str, user: str, model: str, temperature: float = 0.0) -> str:
     """Wrapper that calls the LLM Chat Completions API with exponential backoff on transient errors.
     If NVIDIA fails, triggers an emergency fallback to Groq."""
     import time
+    api_key = get_api_key(model)
+    if api_key == "mock_api_key":
+        raise RuntimeError(f"API key for {model} is not configured.")
+
     if "meta/" in model:
         time.sleep(1.0)
     else:
         time.sleep(2.2)
-    api_key = get_api_key(model)
+
     if "meta/" in model:
         url = "https://integrate.api.nvidia.com/v1/chat/completions"
     else:
         url = "https://api.groq.com/openai/v1/chat/completions"
+
     
     headers = {
         "Authorization": f"Bearer {api_key}",
@@ -192,14 +192,22 @@ def reason(memory_snapshot: dict, current_subtask: dict) -> dict:
             "eval_reasoning": r.get('eval_reasoning')
         })
 
+    learned_constraints = memory_snapshot.get('learned_constraints', [])
+    constraints_prompt = ""
+    if learned_constraints:
+        constraints_prompt = "\nACTIVE LEARNED CONSTRAINTS (MUST FOLLOW):\n" + "\n".join(f"- {c}" for c in learned_constraints) + "\n"
+
+    system_full = system + constraints_prompt
+
     user = (
         f"Goal: {memory_snapshot['goal']}\n"
         f"Active Subtask: {json.dumps(current_subtask)}\n"
+        f"Learned Constraints: {json.dumps(learned_constraints)}\n"
         f"Prior facts: {json.dumps(memory_snapshot['facts'])}\n"
         f"Summary Log: {json.dumps(memory_snapshot['summary_log'])}\n"
         f"Recent History: {json.dumps(trimmed_history)}\n"
     )
-    res = safe_call_llm(system, user, REASONING_MODEL, temperature=0.0, fallback='{}')
+    res = safe_call_llm(system_full, user, REASONING_MODEL, temperature=0.0, fallback='{}')
     try:
         return json.loads(res)
     except json.JSONDecodeError:

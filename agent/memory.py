@@ -20,6 +20,7 @@ class StepRecord:
     eval_verdict: Optional[Literal["success", "inconsistent", "tool_failure", "goal_drift"]]
     eval_reasoning: Optional[str]
     timestamp: str
+    subtask_id: Optional[str] = None
 
 @dataclass
 class WorkingMemory:
@@ -29,6 +30,7 @@ class WorkingMemory:
     history: List[StepRecord] = field(default_factory=list)
     summary_log: List[str] = field(default_factory=list)      # collapsed older steps
     recovery_log: List[dict] = field(default_factory=list)
+    learned_constraints: List[str] = field(default_factory=list)
     global_recovery_attempts: int = 0
 
     def add_step(self, record: StepRecord):
@@ -46,6 +48,46 @@ class WorkingMemory:
             )
             self.summary_log.append(summary)
 
+    def compact_subtask(self, subtask_id: str, strategy: str = "self_correction"):
+        """Once a subtask is verified successful, collapse its failed intermediate attempts
+        into a single consolidated StepRecord and prune failed intermediate traces.
+        """
+        matching_indices = [
+            i for i, rec in enumerate(self.history) if rec.subtask_id == subtask_id
+        ]
+        if not matching_indices:
+            return
+
+        matching_records = [self.history[i] for i in matching_indices]
+        final_record = matching_records[-1]
+
+        res_str = str(final_record.action_result)
+        if len(res_str) > 100:
+            res_str = res_str[:97] + "..."
+
+        summary_msg = f"SubTask [{subtask_id}] resolved via [{strategy}]: final verified result: [{res_str}]"
+
+        consolidated_record = StepRecord(
+            step_num=final_record.step_num,
+            reasoning=summary_msg,
+            action=final_record.action,
+            action_input=final_record.action_input,
+            action_result=final_record.action_result,
+            eval_verdict="success",
+            eval_reasoning=f"Compacted {len(matching_records)} attempt(s) into consolidated milestone.",
+            timestamp=final_record.timestamp,
+            subtask_id=subtask_id,
+        )
+
+        # Replace all matching history records with the single consolidated record
+        first_idx = matching_indices[0]
+        self.history = [
+            rec for i, rec in enumerate(self.history) if i not in matching_indices
+        ]
+        self.history.insert(first_idx, consolidated_record)
+
+        self.summary_log.append(summary_msg)
+
     def snapshot(self) -> dict:
         """Serializable state used for LLM prompts and logging."""
         return {
@@ -61,6 +103,7 @@ class WorkingMemory:
             ],
             "facts": self.facts,
             "summary_log": self.summary_log,
+            "learned_constraints": self.learned_constraints,
             "history": [
                 {
                     "step_num": r.step_num,
@@ -70,9 +113,11 @@ class WorkingMemory:
                     "action_result": r.action_result,
                     "eval_verdict": r.eval_verdict,
                     "eval_reasoning": r.eval_reasoning,
-                    "timestamp": r.timestamp
+                    "timestamp": r.timestamp,
+                    "subtask_id": r.subtask_id
                 } for r in self.history
             ],
             "recovery_log": self.recovery_log,
             "global_recovery_attempts": self.global_recovery_attempts
         }
+
