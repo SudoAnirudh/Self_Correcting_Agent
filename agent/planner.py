@@ -1,7 +1,32 @@
 import json
-from typing import List
+from typing import List, Dict, Any
 from agent.memory import SubTask, WorkingMemory, StepRecord
 from agent import llm
+
+
+def estimate_complexity(goal: str) -> str:
+    """Estimates goal complexity: LOW, MEDIUM, or HIGH."""
+    g_lower = goal.lower()
+    high_keywords = ("code", "script", "compute", "calculate", "transform", "payment", "delete", "compare", "benchmark", "multi-step", "verify conflict")
+    medium_keywords = ("find", "search", "population", "height", "date", "who", "when", "where", "ceo")
+
+    if any(k in g_lower for k in high_keywords) or len(goal) > 120:
+        return "HIGH"
+    elif any(k in g_lower for k in medium_keywords) or len(goal) > 50:
+        return "MEDIUM"
+    return "LOW"
+
+
+def get_budget_for_complexity(complexity: str) -> Dict[str, Any]:
+    """Dynamically allocates retry and step budgets based on estimated complexity."""
+    comp = complexity.upper()
+    if comp == "HIGH":
+        return {"max_subtask_retries": 3, "max_total_steps": 15, "enable_critic": True}
+    elif comp == "MEDIUM":
+        return {"max_subtask_retries": 2, "max_total_steps": 10, "enable_critic": False}
+    else: # LOW
+        return {"max_subtask_retries": 1, "max_total_steps": 5, "enable_critic": False}
+
 
 def decompose(goal: str) -> List[SubTask]:
     """Decompose the goal into subtasks with dependency graphs."""

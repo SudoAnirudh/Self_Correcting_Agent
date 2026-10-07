@@ -19,6 +19,8 @@ class ValidationFinding:
     details: str = ""
     progress: bool = False
     acceptance_ready: bool = False
+    confidence_score: float = 1.0
+    uncertainty_flags: List[str] = field(default_factory=list)
     evidence: Dict[str, Any] = field(default_factory=dict)
 
 
@@ -67,6 +69,8 @@ def validate_result(goal: str, subtask_desc: str, action: str, result: Any,
             status="failure",
             reason_code="SCHEMA_VIOLATION",
             details="Tool result was not a structured object.",
+            confidence_score=0.0,
+            uncertainty_flags=["SCHEMA_VIOLATION"],
         )
 
     if result.get("status") == "unknown" or result.get("ambiguous") is True:
@@ -74,6 +78,8 @@ def validate_result(goal: str, subtask_desc: str, action: str, result: Any,
             status="ambiguous",
             reason_code="ambiguous_outcome",
             details="The tool could not establish whether the requested state change completed.",
+            confidence_score=0.5,
+            uncertainty_flags=["ambiguous_outcome"],
         )
 
     if "error" in result:
@@ -83,6 +89,8 @@ def validate_result(goal: str, subtask_desc: str, action: str, result: Any,
             status="failure",
             reason_code=reason_code,
             details=sanitize_error(err_code, result.get("detail", ""))["detail"],
+            confidence_score=0.0,
+            uncertainty_flags=[reason_code],
         )
 
     # 2. HTTP Status Code Checks
@@ -93,50 +101,60 @@ def validate_result(goal: str, subtask_desc: str, action: str, result: Any,
                 status="failure",
                 reason_code="HTTP_ERROR",
                 details=f"HTTP status code {status_code} indicates a non-200 error response.",
+                confidence_score=0.0,
+                uncertainty_flags=["HTTP_ERROR"],
             )
 
     # 3. Search/fetch style research outputs: schema + minimum-content checks
     if action == "search":
         rows = result.get("results")
         if not isinstance(rows, list):
-            return ValidationFinding("failure", "SCHEMA_VIOLATION", "Expected results list in search output.")
+            return ValidationFinding("failure", "SCHEMA_VIOLATION", "Expected results list in search output.", confidence_score=0.0, uncertainty_flags=["SCHEMA_VIOLATION"])
         valid_rows = [r for r in rows if isinstance(r, dict) and r.get("url")]
         if not valid_rows:
-            return ValidationFinding("failure", "EMPTY_OUTPUT", "Search returned no usable results.")
+            return ValidationFinding("failure", "EMPTY_OUTPUT", "Search returned no usable results.", confidence_score=0.0, uncertainty_flags=["EMPTY_OUTPUT"])
         fingerprint = _stable_fingerprint(result)
         progressed = prior_result is None or fingerprint != _stable_fingerprint(prior_result)
+        flags = ["low_result_count"] if len(valid_rows) < 2 else []
+        conf = 0.8 if len(valid_rows) < 2 else 1.0
         return ValidationFinding(
             status="success",
             reason_code="schema_and_content_ok",
             details="Search output passed deterministic checks.",
             progress=progressed,
             acceptance_ready=True,
+            confidence_score=conf,
+            uncertainty_flags=flags,
             evidence={"usable_results": len(valid_rows), "fingerprint": fingerprint},
         )
 
     if action in {"fetch", "flaky_fetch"}:
         text = result.get("text")
         if not isinstance(text, str):
-            return ValidationFinding("failure", "SCHEMA_VIOLATION", "Expected text field in fetch output.")
+            return ValidationFinding("failure", "SCHEMA_VIOLATION", "Expected text field in fetch output.", confidence_score=0.0, uncertainty_flags=["SCHEMA_VIOLATION"])
         if len(text.strip()) < 10:
-            return ValidationFinding("failure", "MIN_LENGTH_VIOLATION", "Fetched content length is below minimum required threshold (10 characters).")
+            return ValidationFinding("failure", "MIN_LENGTH_VIOLATION", "Fetched content length is below minimum required threshold (10 characters).", confidence_score=0.0, uncertainty_flags=["MIN_LENGTH_VIOLATION"])
         lowered = text.lower()
         garbage_markers = ("access denied", "error 403", "forbidden", "timeout", "temporarily unavailable")
         if any(marker in lowered for marker in garbage_markers):
-            return ValidationFinding("failure", "HTTP_ERROR", "Fetched content contains HTTP error / access denial response.")
+            return ValidationFinding("failure", "HTTP_ERROR", "Fetched content contains HTTP error / access denial response.", confidence_score=0.0, uncertainty_flags=["HTTP_ERROR"])
         progressed = prior_result is None or _stable_fingerprint(result) != _stable_fingerprint(prior_result)
+        flags = ["short_content"] if len(text) < 50 else []
+        conf = 0.85 if len(text) < 50 else 1.0
         return ValidationFinding(
             status="success",
             reason_code="schema_and_content_ok",
             details="Fetch output passed deterministic checks.",
             progress=progressed,
             acceptance_ready=True,
+            confidence_score=conf,
+            uncertainty_flags=flags,
             evidence={"content_length": len(text), "fingerprint": _stable_fingerprint(result)},
         )
 
     # Generic read-only tool contract checks
     if not result:
-        return ValidationFinding("failure", "EMPTY_OUTPUT", "Result payload is empty.")
+        return ValidationFinding("failure", "EMPTY_OUTPUT", "Result payload is empty.", confidence_score=0.0, uncertainty_flags=["EMPTY_OUTPUT"])
 
     return ValidationFinding(
         status="success",
@@ -144,6 +162,8 @@ def validate_result(goal: str, subtask_desc: str, action: str, result: Any,
         details="Structured output passed baseline checks.",
         progress=prior_result is None or _stable_fingerprint(result) != _stable_fingerprint(prior_result),
         acceptance_ready=True,
+        confidence_score=1.0,
+        uncertainty_flags=[],
         evidence={"fingerprint": _stable_fingerprint(result)},
     )
 

@@ -57,6 +57,11 @@ class UpdateInput(BaseModel):
     payload: Dict[str, Any]
     dry_run: bool = False
 
+class ExecutePythonInput(BaseModel):
+    code: str
+    timeout: float = 5.0
+    dry_run: bool = False
+
 # Helper matching functions
 def match_mock_search(query: str) -> Optional[List[dict]]:
     query_lower = query.lower()
@@ -123,6 +128,8 @@ class ToolRouter:
             return WriteInput.model_validate(raw_input)
         elif name == "update":
             return UpdateInput.model_validate(raw_input)
+        elif name in ("execute_python_script", "python_sandbox", "execute_code"):
+            return ExecutePythonInput.model_validate(raw_input)
         else:
             raise ValueError(f"Unknown tool name: {name}")
 
@@ -131,6 +138,8 @@ class ToolRouter:
             return SearchOutput.model_validate(raw_result).model_dump()
         elif name in ("fetch", "flaky_fetch"):
             return FetchResult.model_validate(raw_result).model_dump()
+        elif name in ("execute_python_script", "python_sandbox", "execute_code"):
+            return raw_result if isinstance(raw_result, dict) else {"result": raw_result}
         elif isinstance(raw_result, dict):
             return raw_result
         else:
@@ -143,6 +152,10 @@ class ToolRouter:
             return self._fetch_tool(validated_input.url)
         elif name == "flaky_fetch":
             return self._flaky_fetch_tool(validated_input.url)
+        elif name in ("execute_python_script", "python_sandbox", "execute_code"):
+            from agent.sandbox import PythonCodeSandbox
+            sandbox = PythonCodeSandbox(default_timeout=getattr(validated_input, "timeout", 5.0))
+            return sandbox.execute_code(validated_input.code).model_dump()
         elif name in ("payment", "delete", "send", "write", "update"):
             return {
                 "status": "success",

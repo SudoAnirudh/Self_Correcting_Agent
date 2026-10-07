@@ -3,25 +3,26 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Agent Trajectory Viewer</title>
-    <!-- Google Fonts Inter -->
+    <title>Real-Time Agent Cockpit & Trajectory Viewer</title>
+    <!-- Google Fonts Inter & Fira Code -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Fira+Code:wght@400;500&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600&family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
     <style>
         :root {
             --bg-color: #0b0f19;
-            --card-bg: #151c2c;
+            --card-bg: rgba(21, 28, 44, 0.75);
             --card-border: #243049;
             --text-main: #f3f4f6;
             --text-muted: #9ca3af;
             --accent-primary: #6366f1;
             --accent-secondary: #a855f7;
+            --cyan-glow: #06b6d4;
             --success-color: #10b981;
             --error-color: #ef4444;
             --warning-color: #f59e0b;
             --info-color: #3b82f6;
-            --timeline-line: #1e293b;
+            --pending-color: #64748b;
         }
 
         * {
@@ -33,895 +34,732 @@
         body {
             font-family: 'Inter', sans-serif;
             background-color: var(--bg-color);
+            background-image: 
+                radial-gradient(circle at 15% 15%, rgba(99, 102, 241, 0.08) 0%, transparent 40%),
+                radial-gradient(circle at 85% 85%, rgba(168, 85, 247, 0.08) 0%, transparent 40%);
             color: var(--text-main);
             line-height: 1.6;
-            padding: 2rem;
+            padding: 1.5rem;
             min-height: 100vh;
         }
 
         .container {
-            max-width: 1200px;
+            max-width: 1400px;
             margin: 0 auto;
         }
 
+        /* Top Navigation Header */
         header {
             display: flex;
             justify-content: space-between;
             align-items: center;
-            margin-bottom: 2rem;
-            border-bottom: 1px solid var(--card-border);
-            padding-bottom: 1.5rem;
+            margin-bottom: 1.5rem;
+            padding: 1.25rem 1.75rem;
+            background: var(--card-bg);
+            backdrop-filter: blur(12px);
+            border: 1px solid var(--card-border);
+            border-radius: 16px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+        }
+
+        .brand-title {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+        }
+
+        .brand-logo {
+            width: 40px;
+            height: 40px;
+            background: linear-gradient(135deg, var(--accent-primary), var(--accent-secondary));
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 900;
+            font-size: 1.25rem;
+            color: #fff;
+            box-shadow: 0 0 15px rgba(99, 102, 241, 0.5);
         }
 
         h1 {
-            font-size: 2rem;
+            font-size: 1.5rem;
             font-weight: 800;
-            background: linear-gradient(135deg, var(--accent-primary), var(--accent-secondary));
+            letter-spacing: -0.5px;
+            background: linear-gradient(135deg, #ffffff, #a5b4fc);
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
+        }
+
+        .status-indicators {
+            display: flex;
+            align-items: center;
+            gap: 1.25rem;
+        }
+
+        .status-badge {
             display: flex;
             align-items: center;
             gap: 0.5rem;
+            padding: 0.4rem 0.9rem;
+            border-radius: 20px;
+            font-size: 0.85rem;
+            font-weight: 600;
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.1);
         }
 
-        h1 span {
-            font-size: 1.5rem;
-            font-weight: 300;
-            color: var(--text-muted);
-            -webkit-text-fill-color: var(--text-muted);
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background-color: var(--success-color);
+            box-shadow: 0 0 8px var(--success-color);
         }
 
-        /* File Upload & controls */
-        .controls {
+        .status-dot.pulsing {
+            animation: pulse 1.5s infinite;
+        }
+
+        @keyframes pulse {
+            0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7); }
+            70% { transform: scale(1.1); box-shadow: 0 0 0 10px rgba(16, 185, 129, 0); }
+            100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
+        }
+
+        .status-dot.warning {
+            background-color: var(--warning-color);
+            box-shadow: 0 0 8px var(--warning-color);
+        }
+
+        /* Controls Bar */
+        .controls-bar {
             display: flex;
             gap: 1rem;
             align-items: center;
         }
 
-        .file-upload-btn {
+        .btn {
             background: linear-gradient(135deg, var(--accent-primary), var(--accent-secondary));
             color: #fff;
-            padding: 0.75rem 1.5rem;
+            padding: 0.65rem 1.25rem;
             border-radius: 8px;
             font-weight: 600;
-            cursor: pointer;
-            transition: all 0.3s ease;
-            display: inline-block;
-            border: none;
-            box-shadow: 0 4px 12px rgba(99, 102, 241, 0.3);
-        }
-
-        .file-upload-btn:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 6px 16px rgba(99, 102, 241, 0.4);
-        }
-
-        input[type="file"] {
-            display: none;
-        }
-
-        .btn-secondary {
-            background-color: var(--card-bg);
-            color: var(--text-main);
-            border: 1px solid var(--card-border);
-            padding: 0.75rem 1.5rem;
-            border-radius: 8px;
-            font-weight: 600;
+            font-size: 0.9rem;
             cursor: pointer;
             transition: all 0.2s ease;
+            border: none;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            box-shadow: 0 4px 14px rgba(99, 102, 241, 0.3);
         }
 
-        .btn-secondary:hover {
-            background-color: #1e293b;
-            border-color: var(--text-muted);
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(99, 102, 241, 0.5);
         }
 
-        /* Main layouts */
-        .dashboard-grid {
+        .btn-outline {
+            background: transparent;
+            border: 1px solid var(--card-border);
+            color: var(--text-main);
+            box-shadow: none;
+        }
+
+        .btn-outline:hover {
+            background: rgba(255, 255, 255, 0.05);
+            border-color: var(--accent-primary);
+        }
+
+        /* Main Cockpit Grid */
+        .cockpit-grid {
             display: grid;
             grid-template-columns: 2fr 1fr;
-            gap: 2rem;
-            margin-bottom: 2rem;
+            gap: 1.5rem;
+            margin-bottom: 1.5rem;
         }
 
-        @media (max-width: 900px) {
-            .dashboard-grid {
-                grid-template-columns: 1fr;
-            }
-        }
-
-        .card {
-            background-color: var(--card-bg);
+        .panel {
+            background: var(--card-bg);
+            backdrop-filter: blur(12px);
             border: 1px solid var(--card-border);
-            border-radius: 12px;
+            border-radius: 16px;
             padding: 1.5rem;
-            box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.3);
-            transition: transform 0.2s ease, box-shadow 0.2s ease;
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
         }
 
-        .card:hover {
-            box-shadow: 0 12px 30px -5px rgba(0, 0, 0, 0.4);
-        }
-
-        .card-title {
-            font-size: 1.1rem;
-            font-weight: 700;
-            margin-bottom: 1rem;
-            color: var(--text-main);
+        .panel-header {
             display: flex;
             justify-content: space-between;
             align-items: center;
+            margin-bottom: 1.25rem;
+            padding-bottom: 0.75rem;
+            border-bottom: 1px solid var(--card-border);
         }
 
-        /* Badges */
-        .badge {
-            font-size: 0.75rem;
-            padding: 0.25rem 0.5rem;
-            border-radius: 9999px;
-            font-weight: 600;
-            text-transform: uppercase;
-        }
-
-        .badge-self-correcting {
-            background-color: rgba(168, 85, 247, 0.2);
-            color: var(--accent-secondary);
-            border: 1px solid rgba(168, 85, 247, 0.4);
-        }
-
-        .badge-baseline {
-            background-color: rgba(156, 163, 175, 0.2);
-            color: var(--text-muted);
-            border: 1px solid rgba(156, 163, 175, 0.4);
-        }
-
-        .badge-done {
-            background-color: rgba(16, 185, 129, 0.2);
-            color: var(--success-color);
-        }
-
-        .badge-pending {
-            background-color: rgba(59, 130, 246, 0.2);
-            color: var(--info-color);
-        }
-
-        .badge-in_progress {
-            background-color: rgba(245, 158, 11, 0.2);
-            color: var(--warning-color);
-        }
-
-        .badge-unresolvable {
-            background-color: rgba(239, 68, 68, 0.2);
-            color: var(--error-color);
-        }
-
-        /* Info Section */
-        .info-card h2 {
-            font-size: 1.4rem;
-            margin-bottom: 0.75rem;
+        .panel-title {
+            font-size: 1.1rem;
             font-weight: 700;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            color: #fff;
         }
 
-        .meta-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-            gap: 1rem;
-            margin-top: 1rem;
-            border-top: 1px solid var(--card-border);
-            padding-top: 1rem;
+        /* HITL Panel Styling */
+        .hitl-panel {
+            border: 1px solid rgba(245, 158, 11, 0.4);
+            background: linear-gradient(180deg, rgba(245, 158, 11, 0.05) 0%, var(--card-bg) 100%);
+            position: relative;
+            overflow: hidden;
         }
 
-        .meta-item {
+        .hitl-panel::before {
+            content: '';
+            position: absolute;
+            top: 0; left: 0; right: 0;
+            height: 3px;
+            background: linear-gradient(90deg, var(--warning-color), var(--accent-secondary));
+        }
+
+        .hitl-banner {
+            background: rgba(245, 158, 11, 0.15);
+            border: 1px solid rgba(245, 158, 11, 0.3);
+            border-radius: 10px;
+            padding: 1rem;
+            margin-bottom: 1rem;
+        }
+
+        .hitl-badge {
+            display: inline-block;
+            background: var(--warning-color);
+            color: #000;
+            font-size: 0.75rem;
+            font-weight: 800;
+            padding: 0.2rem 0.6rem;
+            border-radius: 4px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 0.5rem;
+        }
+
+        .hitl-question {
+            font-weight: 700;
+            font-size: 1rem;
+            color: #fff;
+            margin-bottom: 0.5rem;
+        }
+
+        .hitl-options {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.5rem;
+            margin: 1rem 0;
+        }
+
+        .hitl-opt-btn {
+            background: rgba(255, 255, 255, 0.08);
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            color: var(--text-main);
+            padding: 0.5rem 1rem;
+            border-radius: 6px;
+            font-size: 0.85rem;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .hitl-opt-btn:hover {
+            background: var(--accent-primary);
+            border-color: var(--accent-primary);
+            color: #fff;
+        }
+
+        .hitl-input {
+            width: 100%;
+            background: #0f172a;
+            border: 1px solid var(--card-border);
+            border-radius: 8px;
+            padding: 0.75rem;
+            color: #fff;
+            font-family: inherit;
+            margin-bottom: 1rem;
+            outline: none;
+        }
+
+        .hitl-input:focus {
+            border-color: var(--accent-primary);
+            box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.3);
+        }
+
+        /* DAG Tree Graph Render */
+        .dag-container {
             display: flex;
             flex-direction: column;
+            gap: 1rem;
+            min-height: 250px;
         }
 
-        .meta-label {
-            font-size: 0.75rem;
+        .dag-node {
+            background: #0f172a;
+            border: 1px solid var(--card-border);
+            border-radius: 12px;
+            padding: 1rem 1.25rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            position: relative;
+            transition: all 0.3s ease;
+        }
+
+        .dag-node:hover {
+            border-color: var(--accent-primary);
+            transform: translateX(4px);
+        }
+
+        .dag-node.status-ready {
+            border-color: var(--cyan-glow);
+            box-shadow: 0 0 12px rgba(6, 182, 212, 0.2);
+        }
+
+        .dag-node.status-in_progress {
+            border-color: var(--accent-secondary);
+            background: linear-gradient(90deg, rgba(168, 85, 247, 0.1), #0f172a);
+            box-shadow: 0 0 15px rgba(168, 85, 247, 0.3);
+        }
+
+        .dag-node.status-completed, .dag-node.status-done {
+            border-color: var(--success-color);
+        }
+
+        .dag-node.status-blocked {
+            border-color: var(--error-color);
+            background: rgba(239, 68, 68, 0.05);
+        }
+
+        .node-info {
+            display: flex;
+            flex-direction: column;
+            gap: 0.25rem;
+        }
+
+        .node-id {
+            font-family: 'Fira Code', monospace;
+            font-size: 0.8rem;
             color: var(--text-muted);
+        }
+
+        .node-desc {
+            font-weight: 600;
+            font-size: 0.95rem;
+            color: #fff;
+        }
+
+        .node-deps {
+            font-size: 0.75rem;
+            color: var(--accent-primary);
+            display: flex;
+            gap: 0.4rem;
+            align-items: center;
+        }
+
+        .tag {
+            padding: 0.2rem 0.6rem;
+            border-radius: 12px;
+            font-size: 0.75rem;
+            font-weight: 700;
             text-transform: uppercase;
         }
 
-        .meta-val {
-            font-weight: 600;
-            font-size: 1rem;
+        .tag-ready { background: rgba(6, 182, 212, 0.2); color: var(--cyan-glow); }
+        .tag-in_progress { background: rgba(168, 85, 247, 0.2); color: var(--accent-secondary); }
+        .tag-done, .tag-completed { background: rgba(16, 185, 129, 0.2); color: var(--success-color); }
+        .tag-blocked { background: rgba(239, 68, 68, 0.2); color: var(--error-color); }
+        .tag-pending { background: rgba(100, 116, 139, 0.2); color: var(--pending-color); }
+
+        /* Tabs & Bottom Section */
+        .tabs {
+            display: flex;
+            gap: 1rem;
+            border-bottom: 1px solid var(--card-border);
+            margin-bottom: 1rem;
         }
 
-        /* Subtask list table */
-        .task-table {
+        .tab {
+            padding: 0.75rem 1.25rem;
+            font-weight: 600;
+            font-size: 0.9rem;
+            color: var(--text-muted);
+            cursor: pointer;
+            border-bottom: 2px solid transparent;
+            transition: all 0.2s;
+        }
+
+        .tab.active {
+            color: var(--accent-primary);
+            border-bottom-color: var(--accent-primary);
+        }
+
+        .table-container {
+            overflow-x: auto;
+        }
+
+        table {
             width: 100%;
             border-collapse: collapse;
-            font-size: 0.9rem;
+            font-size: 0.85rem;
         }
 
-        .task-table th, .task-table td {
-            padding: 0.75rem 0.5rem;
+        th, td {
+            padding: 0.75rem 1rem;
             text-align: left;
             border-bottom: 1px solid var(--card-border);
         }
 
-        .task-table th {
+        th {
+            background: rgba(255, 255, 255, 0.02);
             color: var(--text-muted);
-            font-weight: 500;
-            text-transform: uppercase;
-            font-size: 0.75rem;
-        }
-
-        /* Timeline styles */
-        .timeline {
-            position: relative;
-            padding-left: 2.5rem;
-            margin-top: 2rem;
-        }
-
-        .timeline::before {
-            content: '';
-            position: absolute;
-            top: 0;
-            bottom: 0;
-            left: 11px;
-            width: 2px;
-            background-color: var(--timeline-line);
-        }
-
-        .timeline-item {
-            position: relative;
-            margin-bottom: 2.5rem;
-            animation: fadeIn 0.5s ease both;
-        }
-
-        .timeline-marker {
-            position: absolute;
-            left: -34px;
-            top: 4px;
-            width: 24px;
-            height: 24px;
-            border-radius: 50%;
-            background-color: var(--card-bg);
-            border: 2px solid var(--accent-primary);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 0.75rem;
-            font-weight: 700;
-            color: var(--text-main);
-            z-index: 2;
-        }
-
-        .timeline-marker.recovery-marker {
-            background-color: rgba(245, 158, 11, 0.2);
-            border-color: var(--warning-color);
-            color: var(--warning-color);
-        }
-
-        .timeline-content {
-            background-color: var(--card-bg);
-            border: 1px solid var(--card-border);
-            border-radius: 10px;
-            padding: 1.25rem;
-        }
-
-        .timeline-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 0.75rem;
-        }
-
-        .timeline-title {
-            font-weight: 700;
-            font-size: 1.05rem;
-            color: var(--text-main);
-        }
-
-        .timeline-time {
-            font-size: 0.75rem;
-            color: var(--text-muted);
-        }
-
-        .step-thought {
-            background-color: rgba(99, 102, 241, 0.05);
-            border-left: 3px solid var(--accent-primary);
-            padding: 0.75rem 1rem;
-            margin-bottom: 1rem;
-            border-radius: 0 6px 6px 0;
-            font-size: 0.95rem;
-        }
-
-        .thought-section {
-            margin-bottom: 0.5rem;
-        }
-
-        .thought-label {
-            font-size: 0.75rem;
-            text-transform: uppercase;
-            font-weight: 700;
-            color: var(--accent-primary);
-            display: block;
-        }
-
-        .step-action-box {
-            display: flex;
-            flex-direction: column;
-            gap: 0.5rem;
-            background-color: rgba(255, 255, 255, 0.02);
-            border: 1px dashed var(--card-border);
-            padding: 0.75rem 1rem;
-            border-radius: 6px;
-            font-size: 0.9rem;
-        }
-
-        .action-call {
-            font-family: 'Fira Code', monospace;
-            color: var(--accent-secondary);
-        }
-
-        .action-result-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            cursor: pointer;
-            user-select: none;
-            margin-top: 0.5rem;
             font-weight: 600;
-            color: var(--text-muted);
-            font-size: 0.85rem;
         }
 
-        .action-result-header:hover {
-            color: var(--text-main);
-        }
-
-        .action-result-content {
-            margin-top: 0.5rem;
-            background-color: #0b0f19;
-            padding: 0.75rem;
-            border-radius: 6px;
+        code {
             font-family: 'Fira Code', monospace;
-            font-size: 0.8rem;
-            overflow-x: auto;
-            max-height: 250px;
-            border: 1px solid var(--card-border);
-        }
-
-        /* Recovery Highlight Card */
-        .recovery-card {
-            border: 1.5px solid var(--warning-color);
-            background: linear-gradient(135deg, rgba(245, 158, 11, 0.08), rgba(239, 68, 68, 0.02));
-            box-shadow: 0 4px 20px rgba(245, 158, 11, 0.15);
-        }
-
-        .recovery-title {
-            color: var(--warning-color);
-            font-weight: 700;
-            display: flex;
-            align-items: center;
-            gap: 0.5rem;
-        }
-
-        /* Verdict styling */
-        .verdict-box {
-            display: flex;
-            align-items: center;
-            gap: 0.5rem;
-            font-size: 0.85rem;
-            font-weight: 600;
-            padding: 0.25rem 0.5rem;
+            background: rgba(0, 0, 0, 0.3);
+            padding: 0.2rem 0.4rem;
             border-radius: 4px;
+            color: #a5b4fc;
         }
 
-        .verdict-success {
-            background-color: rgba(16, 185, 129, 0.1);
-            color: var(--success-color);
-        }
-
-        .verdict-tool_failure {
-            background-color: rgba(239, 68, 68, 0.1);
-            color: var(--error-color);
-        }
-
-        .verdict-inconsistent {
-            background-color: rgba(245, 158, 11, 0.1);
-            color: var(--warning-color);
-        }
-
-        .verdict-goal_drift {
-            background-color: rgba(59, 130, 246, 0.1);
-            color: var(--info-color);
-        }
-
-        /* Facts dictionary visualization */
-        .facts-table {
-            width: 100%;
-            border-collapse: collapse;
-            font-size: 0.85rem;
-        }
-
-        .facts-table td {
-            padding: 0.5rem;
-            border-bottom: 1px solid var(--card-border);
-            vertical-align: top;
-        }
-
-        .facts-key {
-            font-weight: 600;
-            color: var(--accent-primary);
-            width: 30%;
-        }
-
-        .facts-val {
-            color: var(--text-main);
-        }
-
-        /* Final Synthesis styling */
-        .synthesis-card {
-            background: linear-gradient(135deg, rgba(99, 102, 241, 0.1), rgba(168, 85, 247, 0.05));
-            border: 1px solid var(--accent-primary);
-            margin-bottom: 2rem;
-        }
-
-        .synthesis-content {
-            white-space: pre-wrap;
-            font-size: 1rem;
-            line-height: 1.6;
-        }
-
-        /* Animations */
-        @keyframes fadeIn {
-            from {
-                opacity: 0;
-                transform: translateY(10px);
-            }
-            to {
-                opacity: 1;
-                transform: translateY(0);
-            }
-        }
-
+        /* Empty state styling */
         .empty-state {
             text-align: center;
-            padding: 4rem 2rem;
+            padding: 3rem 1rem;
             color: var(--text-muted);
-            border: 2px dashed var(--card-border);
-            border-radius: 12px;
-            margin-top: 2rem;
         }
 
-        .empty-state h3 {
-            font-size: 1.25rem;
-            color: var(--text-main);
-            margin-bottom: 0.5rem;
+        .empty-state svg {
+            width: 48px;
+            height: 48px;
+            margin-bottom: 1rem;
+            opacity: 0.5;
         }
     </style>
 </head>
 <body>
     <div class="container">
+        <!-- Header Nav -->
         <header>
-            <div>
-                <h1> <span>Agent Trajectory Viewer</span></h1>
+            <div class="brand-title">
+                <div class="brand-logo">⚡</div>
+                <div>
+                    <h1>Agent Cockpit <span>Real-Time Execution Engine</span></h1>
+                </div>
             </div>
-            <div class="controls">
-                <label for="log-upload" class="file-upload-btn">Upload .jsonl Log</label>
-                <input type="file" id="log-upload" accept=".jsonl">
-                <button class="btn-secondary" onclick="loadSampleLog()">Load Sample Run</button>
+            <div class="status-indicators">
+                <div class="status-badge">
+                    <div class="status-dot pulsing" id="agentDot"></div>
+                    <span id="agentStateText">IDLE</span>
+                </div>
+                <div class="controls-bar">
+                    <button class="btn btn-outline" onclick="fetchLiveData()">🔄 Refresh</button>
+                    <label class="btn">
+                        📂 Open Log File
+                        <input type="file" id="fileInput" accept=".json,.jsonl">
+                    </label>
+                </div>
             </div>
         </header>
 
-        <!-- Main Dashboard View (initially hidden if no log loaded) -->
-        <div id="viewer-dashboard" style="display: none;">
-            
-            <!-- Summary Info -->
-            <div class="card info-card" style="margin-bottom: 2rem;">
-                <div style="display: flex; justify-content: space-between; align-items: start;">
-                    <div>
-                        <span id="mode-badge" class="badge">Self-Correcting</span>
-                        <h2 id="goal-title" style="margin-top: 0.5rem;">Goal Title Here</h2>
+        <!-- Cockpit Grid -->
+        <div class="cockpit-grid">
+            <!-- Left: Active DAG Execution Tree -->
+            <div class="panel">
+                <div class="panel-header">
+                    <div class="panel-title">
+                        🌿 Active Subtask DAG Graph
                     </div>
+                    <span style="font-size: 0.8rem; color: var(--text-muted);" id="dagCount">0 Subtasks</span>
                 </div>
-                <div class="meta-grid">
-                    <div class="meta-item">
-                        <span class="meta-label">RNG Seed</span>
-                        <span class="meta-val" id="meta-seed">-</span>
-                    </div>
-                    <div class="meta-item">
-                        <span class="meta-label">Total Steps</span>
-                        <span class="meta-val" id="meta-steps">-</span>
-                    </div>
-                    <div class="meta-item">
-                        <span class="meta-label">Recoveries Triggered</span>
-                        <span class="meta-val" id="meta-recoveries">-</span>
-                    </div>
-                    <div class="meta-item">
-                        <span class="meta-label">Synthesized At</span>
-                        <span class="meta-val" id="meta-timestamp">-</span>
+                <div class="dag-container" id="dagTree">
+                    <div class="empty-state">
+                        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
+                        <p>No active DAG execution trace loaded.</p>
+                        <p style="font-size: 0.8rem; margin-top: 0.5rem;">Start an agent run or upload a trace file to visualize graph execution.</p>
                     </div>
                 </div>
             </div>
 
-            <!-- Synthesis Box -->
-            <div class="card synthesis-card" id="synthesis-box">
-                <div class="card-title">
-                    <span>Final Synthesized Synthesis</span>
-                    <span class="badge badge-done" style="background-color: var(--success-color); color: #fff;">Answer Produced</span>
-                </div>
-                <div class="synthesis-content" id="synthesis-text">Synthesis content.</div>
-            </div>
-
-            <div class="dashboard-grid">
-                <!-- Left Column: Steps timeline -->
-                <div>
-                    <h3 style="margin-bottom: 1rem; font-weight: 700; display: flex; align-items: center; gap: 0.5rem;">
-                        Execution Trajectory <span>Timeline</span>
-                    </h3>
-                    <div class="timeline" id="steps-timeline">
-                        <!-- Steps injected here -->
+            <!-- Right: HITL Interactivity Cockpit Panel -->
+            <div class="panel hitl-panel">
+                <div class="panel-header">
+                    <div class="panel-title" style="color: var(--warning-color);">
+                        ✋ Human-in-the-Loop Interactivity
                     </div>
                 </div>
-
-                <!-- Right Column: Planner & Facts -->
-                <div style="display: flex; flex-direction: column; gap: 2rem;">
-                    <!-- Planner Card -->
-                    <div class="card">
-                        <div class="card-title">Initial & Subtask Plans</div>
-                        <table class="task-table">
-                            <thead>
-                                <tr>
-                                    <th>ID</th>
-                                    <th>Description</th>
-                                    <th>Status</th>
-                                </tr>
-                            </thead>
-                            <tbody id="subtasks-tbody">
-                                <!-- Subtasks injected here -->
-                            </tbody>
-                        </table>
-                    </div>
-
-                    <!-- Facts Card -->
-                    <div class="card">
-                        <div class="card-title">Gathered Facts Dictionary</div>
-                        <div id="facts-container">
-                            <table class="facts-table">
-                                <tbody id="facts-tbody">
-                                    <!-- Facts injected here -->
-                                </tbody>
-                            </table>
-                        </div>
+                <div id="hitlContent">
+                    <div class="empty-state" style="padding: 2rem 0;">
+                        <p>No human input pending.</p>
+                        <p style="font-size: 0.8rem; margin-top: 0.4rem;">System will alert here when HITL confirmation is requested.</p>
                     </div>
                 </div>
             </div>
         </div>
 
-        <!-- Empty State (Shown on load) -->
-        <div id="empty-state" class="empty-state">
-            <h3>No Agent Log Loaded</h3>
-            <p style="margin-bottom: 1.5rem;">Please select a timestamped agent <code>.jsonl</code> file from your workspace logs or load the embedded sample trace.</p>
-            <button class="file-upload-btn" onclick="document.getElementById('log-upload').click()">Browse Files</button>
-            <button class="btn-secondary" style="margin-left: 1rem;" onclick="loadSampleLog()">Load Sample Trace</button>
+        <!-- Bottom Tabs: Telemetry Traces & Episodic Reflection Store -->
+        <div class="panel">
+            <div class="tabs">
+                <div class="tab active" onclick="switchTab('tracesTab', this)">📊 OpenInference Spans</div>
+                <div class="tab" onclick="switchTab('episodicTab', this)">🧠 Episodic Memory Store</div>
+            </div>
+
+            <!-- Traces Tab -->
+            <div id="tracesTab" class="table-container">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Span Name</th>
+                            <th>Status</th>
+                            <th>Duration (s)</th>
+                            <th>Attributes / Context</th>
+                        </tr>
+                    </thead>
+                    <tbody id="tracesTable">
+                        <tr><td colspan="4" class="empty-state">No OpenInference trace spans loaded.</td></tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <!-- Episodic Memory Tab -->
+            <div id="episodicTab" class="table-container" style="display: none;">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Goal Pattern</th>
+                            <th>Error Type</th>
+                            <th>Failed Action</th>
+                            <th>Learned Resolution Rule</th>
+                        </tr>
+                    </thead>
+                    <tbody id="episodicTable">
+                        <tr><td colspan="4" class="empty-state">No episodic memory records available.</td></tr>
+                    </tbody>
+                </table>
+            </div>
         </div>
     </div>
 
-    <!-- Log Parser & UI Builder Script -->
     <script>
-        const logUpload = document.getElementById('log-upload');
-        const emptyState = document.getElementById('empty-state');
-        const dashboard = document.getElementById('viewer-dashboard');
+        let currentCheckpoints = [];
 
-        logUpload.addEventListener('change', function(e) {
+        // Tab Switching
+        function switchTab(tabId, element) {
+            document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+            element.classList.add('active');
+
+            document.getElementById('tracesTab').style.display = tabId === 'tracesTab' ? 'block' : 'none';
+            document.getElementById('episodicTab').style.display = tabId === 'episodicTab' ? 'block' : 'none';
+        }
+
+        // Live API Fetching
+        async function fetchLiveData() {
+            try {
+                // Fetch Traces
+                const trRes = await fetch('/api/traces');
+                if (trRes.ok) {
+                    const traces = await trRes.json();
+                    renderTraces(traces);
+                }
+
+                // Fetch Episodic Memory
+                const epRes = await fetch('/api/episodic');
+                if (epRes.ok) {
+                    const episodes = await epRes.json();
+                    renderEpisodic(episodes);
+                }
+
+                // Fetch Checkpoints / HITL State
+                const ckRes = await fetch('/api/checkpoints');
+                if (ckRes.ok) {
+                    currentCheckpoints = await ckRes.json();
+                    renderHITL(currentCheckpoints);
+                }
+            } catch (err) {
+                console.log("Live API server offline or local file mode active.");
+            }
+        }
+
+        // Render DAG Graph
+        function renderDAG(subtasks) {
+            const container = document.getElementById('dagTree');
+            document.getElementById('dagCount').textContent = `${subtasks.length} Subtasks`;
+
+            if (!subtasks || subtasks.length === 0) {
+                container.innerHTML = `
+                    <div class="empty-state">
+                        <p>No active DAG execution trace loaded.</p>
+                    </div>`;
+                return;
+            }
+
+            container.innerHTML = subtasks.map(task => {
+                const depsStr = task.depends_on && task.depends_on.length > 0
+                    ? `🔗 depends_on: [${task.depends_on.join(', ')}]`
+                    : '🌱 Root Task';
+                const statusClass = `status-${task.status}`;
+                const tagClass = `tag-${task.status}`;
+
+                return `
+                    <div class="dag-node ${statusClass}">
+                        <div class="node-info">
+                            <span class="node-id">${task.id}</span>
+                            <span class="node-desc">${task.description}</span>
+                            <span class="node-deps">${depsStr}</span>
+                        </div>
+                        <div>
+                            <span class="tag ${tagClass}">${task.status}</span>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        // Render HITL Panel
+        function renderHITL(checkpoints) {
+            const container = document.getElementById('hitlContent');
+            const dot = document.getElementById('agentDot');
+            const stateText = document.getElementById('agentStateText');
+
+            if (!checkpoints || checkpoints.length === 0) {
+                container.innerHTML = `
+                    <div class="empty-state" style="padding: 2rem 0;">
+                        <p>No human input pending.</p>
+                        <p style="font-size: 0.8rem; margin-top: 0.4rem;">System will alert here when HITL confirmation is requested.</p>
+                    </div>`;
+                dot.className = 'status-dot';
+                stateText.textContent = 'IDLE';
+                return;
+            }
+
+            dot.className = 'status-dot warning pulsing';
+            stateText.textContent = 'AWAITING_INPUT';
+
+            const activeCkpt = checkpoints[checkpoints.length - 1];
+            const req = activeCkpt.hitl_request || {};
+            const options = req.options || ['Approve', 'Reject'];
+
+            container.innerHTML = `
+                <div class="hitl-banner">
+                    <span class="hitl-badge">Severity: ${req.severity || 'HIGH'}</span>
+                    <div class="hitl-question">${req.question || 'Human intervention required.'}</div>
+                    <div style="font-size: 0.8rem; color: var(--text-muted);">${req.context_summary || ''}</div>
+                </div>
+
+                <div class="hitl-options">
+                    ${options.map(opt => `
+                        <button class="hitl-opt-btn" onclick="selectHITLOption('${opt}')">${opt}</button>
+                    `).join('')}
+                </div>
+
+                <input type="text" id="hitlResponseInput" class="hitl-input" placeholder="Type custom human response or click an option above..." />
+
+                <button class="btn" style="width: 100%; justify-content: center;" onclick="submitHITLResponse('${activeCkpt.checkpoint_id}')">
+                    🚀 Submit Response & Resume Agent
+                </button>
+            `;
+
+            // If checkpoint contains memory snapshot, render its DAG tree
+            if (activeCkpt.memory && activeCkpt.memory.subtasks) {
+                renderDAG(activeCkpt.memory.subtasks);
+            }
+        }
+
+        function selectHITLOption(optionText) {
+            document.getElementById('hitlResponseInput').value = optionText;
+        }
+
+        async function submitHITLResponse(checkpointId) {
+            const inputVal = document.getElementById('hitlResponseInput').value || 'Approved by user';
+            try {
+                const res = await fetch('/api/resume', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ checkpoint_id: checkpointId, user_response: inputVal })
+                });
+                if (res.ok) {
+                    const data = await res.json();
+                    alert(`Agent resumed successfully! Final output:\n${data.final_output}`);
+                    fetchLiveData();
+                } else {
+                    alert("Failed to submit resumption response.");
+                }
+            } catch (err) {
+                alert("Error submitting response: " + err.message);
+            }
+        }
+
+        // Render OpenInference Traces
+        function renderTraces(traces) {
+            const tbody = document.getElementById('tracesTable');
+            if (!traces || traces.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="4" class="empty-state">No trace spans available.</td></tr>';
+                return;
+            }
+
+            tbody.innerHTML = traces.slice(-15).reverse().map(t => `
+                <tr>
+                    <td><code>${t.name || 'agent.span'}</code></td>
+                    <td><span class="tag tag-${t.status === 'OK' ? 'done' : 'blocked'}">${t.status || 'OK'}</span></td>
+                    <td>${t.duration_seconds ? t.duration_seconds.toFixed(3) : '0.000'}</td>
+                    <td><code>${JSON.stringify(t.attributes || {}).substring(0, 80)}...</code></td>
+                </tr>
+            `).join('');
+        }
+
+        // Render Episodic Memory Store
+        function renderEpisodic(episodes) {
+            const tbody = document.getElementById('episodicTable');
+            if (!episodes || episodes.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="4" class="empty-state">No episodic memory records available.</td></tr>';
+                return;
+            }
+
+            tbody.innerHTML = episodes.map(e => `
+                <tr>
+                    <td><strong>${e.goal_pattern || ''}</strong></td>
+                    <td><code>${e.error_type || ''}</code></td>
+                    <td><code>${e.failed_action || ''}</code></td>
+                    <td>${e.learned_rule || e.successful_resolution || ''}</td>
+                </tr>
+            `).join('');
+        }
+
+        // File Drag & Drop / Upload
+        document.getElementById('fileInput').addEventListener('change', (e) => {
             const file = e.target.files[0];
             if (!file) return;
 
             const reader = new FileReader();
-            reader.onload = function(evt) {
-                parseLogLines(evt.target.result);
+            reader.onload = (event) => {
+                const text = event.target.result;
+                try {
+                    const data = JSON.parse(text);
+                    if (data.subtasks) {
+                        renderDAG(data.subtasks);
+                    } else if (Array.isArray(data)) {
+                        renderTraces(data);
+                    }
+                } catch (err) {
+                    // Try JSONL
+                    const lines = text.split('\n').filter(l => l.strip).map(l => JSON.parse(l));
+                    renderTraces(lines);
+                }
             };
             reader.readAsText(file);
         });
 
-        function parseLogLines(rawText) {
-            const lines = rawText.split('\n').filter(l => l.trim() !== '');
-            const events = [];
-            for (let line of lines) {
-                try {
-                    events.push(JSON.parse(line));
-                } catch (e) {
-                    console.error("Error parsing JSONL line", e);
-                }
-            }
-
-            if (events.length === 0) {
-                alert("No valid JSON logs found in file.");
-                return;
-            }
-
-            renderTrajectory(events);
-        }
-
-        function renderTrajectory(events) {
-            // Find start, end, plan, step, recovery records
-            const runStart = events.find(e => e.event === 'run_start') || {};
-            const runEnd = events.find(e => e.event === 'run_end') || {};
-            const planEvent = events.find(e => e.event === 'plan') || {};
-            const steps = events.filter(e => e.event === 'step');
-            const recoveries = events.filter(e => e.event === 'recovery');
-
-            // Toggle Dashboard visibility
-            emptyState.style.display = 'none';
-            dashboard.style.display = 'block';
-
-            // 1. Goal & Badges
-            document.getElementById('goal-title').innerText = runStart.goal || "Web Research Synthesis Goal";
-            const mode = runStart.mode || "self_correcting";
-            const modeBadge = document.getElementById('mode-badge');
-            modeBadge.innerText = mode.replace('_', ' ');
-            modeBadge.className = 'badge ' + (mode === 'self_correcting' ? 'badge-self-correcting' : 'badge-baseline');
-
-            // 2. Meta parameters
-            document.getElementById('meta-seed').innerText = runStart.seed !== undefined ? runStart.seed : 'N/A';
-            document.getElementById('meta-steps').innerText = steps.length;
-            document.getElementById('meta-recoveries').innerText = recoveries.length;
-            document.getElementById('meta-timestamp').innerText = runEnd.timestamp ? new Date(runEnd.timestamp).toLocaleTimeString() : 'N/A';
-
-            // 3. Final Synthesis
-            const synthesisText = document.getElementById('synthesis-text');
-            if (runEnd.final_output) {
-                synthesisText.innerText = runEnd.final_output;
-                document.getElementById('synthesis-box').style.display = 'block';
-            } else {
-                document.getElementById('synthesis-box').style.display = 'none';
-            }
-
-            // 4. Subtasks Plan list
-            const subtaskTbody = document.getElementById('subtasks-tbody');
-            subtaskTbody.innerHTML = '';
-            
-            // Reconstruct subtasks status list from timeline state
-            // Let's read from the final subtask snapshot in run_end if available, otherwise planEvent
-            const finalSubtasks = (runEnd.unresolved_subtasks || []).reduce((acc, st) => {
-                acc[st.id] = st;
-                return acc;
-            }, {});
-
-            const planTasks = planEvent.subtasks || [];
-            planTasks.forEach(st => {
-                const tr = document.createElement('tr');
-                const finalState = finalSubtasks[st.id] || st;
-                
-                // If it wasn't unresolved, we can check if it is marked as done in the trajectory or if it is indeed done
-                let status = st.status;
-                if (finalSubtasks[st.id]) {
-                    status = finalSubtasks[st.id].status;
-                } else {
-                    // If not unresolved, check if any step record has it as success
-                    const isDone = steps.some(step => step.eval_verdict === 'success');
-                    status = isDone ? 'done' : 'done'; // default done if not unresolved
-                }
-
-                tr.innerHTML = `
-                    <td style="font-family: monospace; font-weight: bold; color: var(--accent-primary);">${st.id}</td>
-                    <td>${st.description}</td>
-                    <td><span class="badge badge-${status}">${status}</span></td>
-                `;
-                subtaskTbody.appendChild(tr);
-            });
-
-            // 5. Build facts table
-            // We can reconstruct facts. Let's merge facts from step records or take them as they accumulate
-            let facts = {};
-            steps.forEach(s => {
-                // If we extracted facts, we can show them
-                // For simplicity, let's look at key facts. Since facts is a key-value store in memory,
-                // we can look at the facts dictionary. Wait, our logger does not log the entire facts dict in step,
-                // but we can show the final facts if we dump them, or show facts extracted in each step.
-                // Let's search if facts are logged. If not, we'll parse results or show mock facts.
-                // Let's check step records or run_end.
-            });
-            
-            // To guarantee we have facts to display, let's check if the log contains key claims.
-            // Since we extracted them, let's parse from step record actions or show the sample ones.
-            // We can extract facts from the mock facts or parse them dynamically.
-            const factsTbody = document.getElementById('facts-tbody');
-            factsTbody.innerHTML = '';
-            
-            // Let's collect all claims from search/fetch results that were succeeded
-            let collectedFacts = {};
-            steps.forEach(s => {
-                if (s.action_result && typeof s.action_result === 'object' && !s.action_result.error) {
-                    if (s.action === 'search') {
-                        // Extract query words
-                        collectedFacts['Search Query'] = s.action_input.query;
-                    } else if (s.action === 'fetch' || s.action === 'flaky_fetch') {
-                        collectedFacts['Scraped Source'] = s.action_input.url;
-                    }
-                }
-            });
-            // Also if there was inconsistency resolution, show it
-            recoveries.forEach(r => {
-                if (r.strategy === 'resolve_contradiction') {
-                    collectedFacts['Resolution Note'] = r.details;
-                }
-            });
-
-            if (Object.keys(collectedFacts).length === 0) {
-                factsTbody.innerHTML = '<tr><td colspan="2" style="color: var(--text-muted); text-align: center;">No specific facts recorded.</td></tr>';
-            } else {
-                for (let [k, v] of Object.entries(collectedFacts)) {
-                    const tr = document.createElement('tr');
-                    tr.innerHTML = `
-                        <td class="facts-key">${k}</td>
-                        <td class="facts-val">${v}</td>
-                    `;
-                    factsTbody.appendChild(tr);
-                }
-            }
-
-            // 6. Steps Trajectory Timeline
-            const timeline = document.getElementById('steps-timeline');
-            timeline.innerHTML = '';
-
-            // We want to interleave step events and recovery events correctly based on time or order
-            // Since JSONL preserves order of execution, we can just process them in order of occurrence
-            let stepIndex = 1;
-            events.forEach(ev => {
-                if (ev.event === 'step') {
-                    const item = document.createElement('div');
-                    item.className = 'timeline-item';
-                    
-                    // Parse thought sections
-                    let belief = "", gap = "", why = "";
-                    if (ev.reasoning && ev.reasoning.includes('Belief:')) {
-                        const parts = ev.reasoning.split('|');
-                        parts.forEach(p => {
-                            if (p.includes('Belief:')) belief = p.replace('Belief:', '').trim();
-                            if (p.includes('Gap:')) gap = p.replace('Gap:', '').trim();
-                            if (p.includes('Why Action:')) why = p.replace('Why Action:', '').trim();
-                        });
-                    } else {
-                        belief = ev.reasoning || "";
-                    }
-
-                    const verdict = ev.eval_verdict || "success";
-                    const verdictClass = `verdict-${verdict}`;
-                    
-                    item.innerHTML = `
-                        <div class="timeline-marker">${stepIndex++}</div>
-                        <div class="timeline-content">
-                            <div class="timeline-header">
-                                <div class="timeline-title">Action Step</div>
-                                <div class="verdict-box ${verdictClass}">
-                                    ${verdict.replace('_', ' ')}
-                                </div>
-                            </div>
-                            
-                            <div class="step-thought">
-                                ${belief ? `<div class="thought-section"><span class="thought-label">Belief</span>${belief}</div>` : ''}
-                                ${gap ? `<div class="thought-section"><span class="thought-label">Gap</span>${gap}</div>` : ''}
-                                ${why ? `<div class="thought-section"><span class="thought-label">Why Action</span>${why}</div>` : ''}
-                            </div>
-                            
-                            <div class="step-action-box">
-                                <div><span style="font-weight: bold; color: var(--text-muted);">Action:</span> <span class="action-call">${ev.action}(${JSON.stringify(ev.action_input)})</span></div>
-                                <div class="action-result-header" onclick="toggleResult(this)">
-                                    <span>▶ Show Observation Result</span>
-                                </div>
-                                <pre class="action-result-content" style="display: none;">${JSON.stringify(ev.action_result, null, 2)}</pre>
-                            </div>
-                        </div>
-                    `;
-                    timeline.appendChild(item);
-                } else if (ev.event === 'recovery') {
-                    const item = document.createElement('div');
-                    item.className = 'timeline-item';
-                    
-                    item.innerHTML = `
-                        <div class="timeline-marker recovery-marker">⚠</div>
-                        <div class="timeline-content recovery-card">
-                            <div class="timeline-header">
-                                <div class="recovery-title">Self-Correction Triggered</div>
-                                <div class="timeline-time">${ev.strategy}</div>
-                            </div>
-                            <p style="font-size: 0.95rem; margin-top: 0.5rem; color: var(--text-main); font-weight: 500;">
-                                ${ev.details}
-                            </p>
-                        </div>
-                    `;
-                    timeline.appendChild(item);
-                }
-            });
-        }
-
-        function toggleResult(header) {
-            const pre = header.nextElementSibling;
-            if (pre.style.display === 'none') {
-                pre.style.display = 'block';
-                header.innerText = '▼ Hide Observation Result';
-            } else {
-                pre.style.display = 'none';
-                header.innerText = '▶ Show Observation Result';
-            }
-        }
-
-        // Hardcoded Sample Log to run on button click
-        function loadSampleLog() {
-            const sampleEvents = [
-                {
-                    "event": "run_start",
-                    "goal": "Retrieve the official height of the Eiffel Tower, verifying consistency across sources.",
-                    "seed": 54321,
-                    "mode": "self_correcting",
-                    "models": {
-                        "reasoning": {"model": "llama-3.3-70b-versatile", "temperature": 0.0},
-                        "evaluation": {"model": "llama-3.1-8b-instant", "temperature": 0.0}
-                    },
-                    "timestamp": "2026-07-10T05:20:00.000Z"
-                },
-                {
-                    "event": "plan",
-                    "subtasks": [
-                        {"id": "s1", "description": "Search for official Eiffel Tower height website", "status": "pending"},
-                        {"id": "s2", "description": "Fetch official height and verify radio antenna details", "status": "pending"}
-                    ],
-                    "timestamp": "2026-07-10T05:20:01.000Z"
-                },
-                {
-                    "event": "step",
-                    "step_num": 1,
-                    "reasoning": "Belief: Starting query | Gap: Need the official eiffel tower webpage URL | Why Action: Search helps locate the primary domain.",
-                    "action": "search",
-                    "action_input": {"query": "eiffel tower height official site"},
-                    "action_result": {
-                        "results": [
-                            {"title": "Eiffel Tower Height - Official Site", "url": "https://official.eiffel.tower/height", "snippet": "Official measurements state the tower is 330 meters tall including antenna."}
-                        ]
-                    },
-                    "eval_verdict": "success",
-                    "eval_reasoning": "Found official website link.",
-                    "timestamp": "2026-07-10T05:20:03.000Z"
-                },
-                {
-                    "event": "step",
-                    "step_num": 2,
-                    "reasoning": "Belief: Official URL located | Gap: Need to retrieve the exact webpage details | Why Action: flaky_fetch retrieves the text contents from the official page.",
-                    "action": "flaky_fetch",
-                    "action_input": {"url": "https://official.eiffel.tower/height"},
-                    "action_result": {"error": "tool_exception", "detail": "Connection timed out (simulated flaky fetch exception)"},
-                    "eval_verdict": "tool_failure",
-                    "eval_reasoning": "Webpage request timed out.",
-                    "timestamp": "2026-07-10T05:20:05.000Z"
-                },
-                {
-                    "event": "recovery",
-                    "subtask_id": "s2",
-                    "strategy": "recover_tool_failure",
-                    "details": "Retrying subtask. Attempt 1. Hint: flaky_fetch failed, prompting fallback to standard fetch.",
-                    "timestamp": "2026-07-10T05:20:06.000Z"
-                },
-                {
-                    "event": "step",
-                    "step_num": 3,
-                    "reasoning": "Belief: Timeout occurred on prior flaky_fetch attempt | Gap: Need text from official site safely | Why Action: Standard fetch bypasses the flaky tool parameters to get page contents.",
-                    "action": "fetch",
-                    "action_input": {"url": "https://official.eiffel.tower/height"},
-                    "action_result": {
-                        "url": "https://official.eiffel.tower/height",
-                        "text": "The official height of the Eiffel Tower is 330 meters (1,083 ft) including the radio antenna at the top.",
-                        "fetched_at": "2026-07-10T05:20:07Z"
-                    },
-                    "eval_verdict": "success",
-                    "eval_reasoning": "Successfully fetched page text containing height facts.",
-                    "timestamp": "2026-07-10T05:20:08.000Z"
-                },
-                {
-                    "event": "run_end",
-                    "final_output": "The official height of the Eiffel Tower is 330 meters (1,083 feet), which includes the radio antenna structure at the top.",
-                    "unresolved_subtasks": [],
-                    "total_steps": 3,
-                    "total_recoveries": 1,
-                    "timestamp": "2026-07-10T05:20:10.000Z"
-                }
-            ];
-
-            renderTrajectory(sampleEvents);
-        }
+        // Auto Poll
+        fetchLiveData();
+        setInterval(fetchLiveData, 2000);
     </script>
 </body>
 </html>
